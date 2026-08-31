@@ -1,0 +1,145 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Newsreader", "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+  --font-sans: "Figtree", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-bg: #efebe3;
+  --color-surface: #f7f4ee;
+  --color-elevated: #fffcf7;
+  --color-ink: #1a1916;
+  --color-fg: #1a1916;
+  --color-muted: #6f6b63;
+  --color-subtle: #9a948a;
+  --color-line: #e2dcd2;
+  --color-border: #ddd6cb;
+  --color-primary: #1e4a3a;
+  --color-primary-fg: #f4f1ea;
+  --color-primary-soft: #dce8e2;
+  --color-danger: #8b3a2a;
+  --color-danger-soft: #f3e4df;
+  --color-warn: #7a5c28;
+  --color-warn-soft: #f1e6d0;
+  --color-income: #1e4a3a;
+  --color-expense: #8b3a2a;
+
+  --color-p1: #1e4a3a;
+  --color-p2: #2c3d56;
+  --color-p3: #6b4534;
+  --color-p4: #3d5348;
+  --color-p5: #4a3d4a;
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 26px;
+  --radius-2xl: 32px;
+
+  --shadow-border:
+    0px 0px 0px 1px rgba(26, 25, 22, 0.06),
+    0px 1px 2px -1px rgba(26, 25, 22, 0.06),
+    0px 2px 8px 0px rgba(26, 25, 22, 0.04);
+  --shadow-border-hover:
+    0px 0px 0px 1px rgba(26, 25, 22, 0.1),
+    0px 1px 2px -1px rgba(26, 25, 22, 0.08),
+    0px 4px 12px 0px rgba(26, 25, 22, 0.06);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html,
+  body,
+  #app {
+    min-height: 100%;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+    font-family: var(--font-display);
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  * {
+    border-color: var(--color-border);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.stagger-in > * {
+  animation: fade-up 400ms var(--ease-out) both;
+}
+.stagger-in > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.stagger-in > *:nth-child(2) {
+  animation-delay: 40ms;
+}
+.stagger-in > *:nth-child(3) {
+  animation-delay: 80ms;
+}
+.stagger-in > *:nth-child(4) {
+  animation-delay: 120ms;
+}
+.stagger-in > *:nth-child(5) {
+  animation-delay: 160ms;
+}
+.stagger-in > *:nth-child(6) {
+  animation-delay: 200ms;
+}
+.stagger-in > *:nth-child(7) {
+  animation-delay: 240ms;
+}
+.stagger-in > *:nth-child(8) {
+  animation-delay: 280ms;
+}
