@@ -2,7 +2,7 @@
 
 App de orçamento da casa: foto, PDF ou planilha viram lançamentos. Quase sem digitação.
 
-## Usar de graça (sem pagar o Grok)
+## Usar de graça
 
 1. Abra [vercel.com](https://vercel.com) e entre com esta conta do GitHub.
 2. **Add New → Project** e escolha `nucleo-financas`.
@@ -10,16 +10,17 @@ App de orçamento da casa: foto, PDF ou planilha viram lançamentos. Quase sem d
 
 Quando terminar, a Vercel te dá um link (algo como `nucleo-financas.vercel.app`). Abra no celular e, se quiser, adicione à tela inicial.
 
-### Leitura automática de notas (opcional)
+### Leitura automática com Gemini (grátis)
 
-Foto, PDF e conselhos usam a API da xAI. Sem isso, o resto do app funciona (lançamento rápido, pessoas, parcelas, extrato).
+Foto, PDF e conselhos usam a chave gratuita do [Google AI Studio](https://aistudio.google.com/apikey).
 
-Se tiver uma chave em [console.x.ai](https://console.x.ai), na Vercel vá em **Settings → Environment Variables** e adicione:
+1. Abra [aistudio.google.com/apikey](https://aistudio.google.com/apikey) e copie sua chave.
+2. Na Vercel: **Settings → Environment Variables**
+   - Nome: `GEMINI_API_KEY`
+   - Valor: a chave (começa com `AIza`)
+3. **Redeploy**.
 
-- Nome: `XAI_API_KEY`
-- Valor: sua chave
-
-Depois faça um Redeploy.
+Sem a chave, o resto do app funciona (lançamento rápido, pessoas, parcelas, extrato).
 
 ## No celular
 

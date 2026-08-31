@@ -3,7 +3,8 @@ import { CATEGORIES } from "./categories";
 import type { AdviceItem, CategoryId, ExtractedItem, InstallmentKind, TxType } from "./types";
 import { uid } from "./utils";
 
-const MODEL = "grok-4.5";
+const GROK_MODEL = "grok-4.5";
+const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-001"];
 const CATEGORY_IDS = CATEGORIES.map((c) => c.id).join(", ");
 
 type ImagePart = { mime: string; base64: string };
@@ -28,6 +29,13 @@ type AdvicePayload = {
   merchants: { name: string; amount: number; count: number }[];
 };
 
+type ChatInput = {
+  system: string;
+  text: string;
+  images?: ImagePart[];
+  maxTokens: number;
+};
+
 function parseJsonObject(raw: string): unknown {
   const trimmed = raw.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -38,9 +46,67 @@ function parseJsonObject(raw: string): unknown {
   return JSON.parse(body.slice(start, end + 1));
 }
 
-async function grokChat(messages: unknown[], maxTokens: number) {
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) return { ok: false as const, error: "A leitura automática não está disponível agora." };
+function geminiKey() {
+  return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
+}
+
+async function geminiChat(apiKey: string, input: ChatInput) {
+  const parts: Record<string, unknown>[] = [{ text: input.text }];
+  for (const img of input.images ?? []) {
+    parts.push({
+      inline_data: {
+        mime_type: img.mime,
+        data: img.base64,
+      },
+    });
+  }
+
+  const payload = {
+    system_instruction: { parts: [{ text: input.system }] },
+    contents: [{ role: "user", parts }],
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: input.maxTokens,
+      responseMimeType: "application/json",
+    },
+  };
+
+  let lastStatus = 0;
+  for (const model of GEMINI_MODELS) {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+    lastStatus = res.status;
+    if (res.status === 404) continue;
+    if (!res.ok) {
+      return { ok: false as const, error: `Não consegui ler o documento (${res.status}).` };
+    }
+    const body = (await res.json()) as {
+      candidates?: { content?: { parts?: { text?: string }[] } }[];
+    };
+    const text = body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+    return { ok: true as const, text };
+  }
+
+  return { ok: false as const, error: `Não consegui ler o documento (${lastStatus}).` };
+}
+
+async function grokChat(apiKey: string, input: ChatInput) {
+  const userContent: unknown[] = [{ type: "text", text: input.text }];
+  for (const img of input.images ?? []) {
+    userContent.push({
+      type: "image_url",
+      image_url: { url: `data:${img.mime};base64,${img.base64}` },
+    });
+  }
 
   const res = await fetch("https://api.x.ai/v1/chat/completions", {
     method: "POST",
@@ -49,10 +115,13 @@ async function grokChat(messages: unknown[], maxTokens: number) {
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: MODEL,
+      model: GROK_MODEL,
       temperature: 0.2,
-      max_tokens: maxTokens,
-      messages,
+      max_tokens: input.maxTokens,
+      messages: [
+        { role: "system", content: input.system },
+        { role: "user", content: userContent },
+      ],
     }),
   });
 
@@ -65,6 +134,17 @@ async function grokChat(messages: unknown[], maxTokens: number) {
   };
   const text = body.choices?.[0]?.message?.content ?? "";
   return { ok: true as const, text };
+}
+
+async function llmChat(input: ChatInput) {
+  const gemini = geminiKey();
+  if (gemini) return geminiChat(gemini, input);
+  const xai = process.env.XAI_API_KEY;
+  if (xai) return grokChat(xai, input);
+  return {
+    ok: false as const,
+    error: "Falta a chave do Gemini. Coloque GEMINI_API_KEY na Vercel.",
+  };
 }
 
 function asCategory(value: unknown): CategoryId {
@@ -112,29 +192,16 @@ Regras:
 - Pessoas da casa: ${peopleList}
 - No máximo 40 itens, os mais relevantes.`;
 
-    const userContent: unknown[] = [];
-    if (data.text) {
-      userContent.push({
-        type: "text",
-        text: `Documento / planilha:\n${data.text.slice(0, 18000)}`,
-      });
-    } else {
-      userContent.push({ type: "text", text: "Extraia os lançamentos destas imagens." });
-    }
-    for (const img of data.images ?? []) {
-      userContent.push({
-        type: "image_url",
-        image_url: { url: `data:${img.mime};base64,${img.base64}` },
-      });
-    }
+    const text = data.text
+      ? `Documento / planilha:\n${data.text.slice(0, 18000)}`
+      : "Extraia os lançamentos destas imagens.";
 
-    const result = await grokChat(
-      [
-        { role: "system", content: system },
-        { role: "user", content: userContent },
-      ],
-      2200,
-    );
+    const result = await llmChat({
+      system,
+      text,
+      images: data.images,
+      maxTokens: 2200,
+    });
 
     if (!result.ok) return result;
 
@@ -191,15 +258,11 @@ Responda APENAS JSON:
 }
 3 a 6 itens, os de maior impacto primeiro.`;
 
-    const user = JSON.stringify(data);
-
-    const result = await grokChat(
-      [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      1200,
-    );
+    const result = await llmChat({
+      system,
+      text: JSON.stringify(data),
+      maxTokens: 1200,
+    });
 
     if (!result.ok) return result;
 
