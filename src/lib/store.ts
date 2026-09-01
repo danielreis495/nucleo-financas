@@ -35,6 +35,7 @@ type FinanceActions = {
   }) => void;
   updateTransaction: (id: string, patch: Partial<Transaction>) => void;
   removeTransaction: (id: string) => void;
+  restoreTransaction: (tx: Transaction) => void;
   setBudget: (category: CategoryId, monthlyLimit: number) => void;
   importExtracted: (items: ExtractedItem[], source: TxSource) => void;
   addInstallmentPlan: (input: {
@@ -184,6 +185,10 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         }),
       removeTransaction: (id) =>
         set({ transactions: get().transactions.filter((t) => t.id !== id) }),
+      restoreTransaction: (tx) => {
+        if (get().transactions.some((t) => t.id === tx.id)) return;
+        set({ transactions: [tx, ...get().transactions] });
+      },
       setBudget: (category, monthlyLimit) => {
         const budgets = get().budgets;
         const exists = budgets.some((b) => b.category === category);
