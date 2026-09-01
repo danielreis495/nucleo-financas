@@ -5,13 +5,13 @@ import { uid } from "./utils";
 const CATEGORY_IDS = CATEGORIES.map((c) => c.id).join(", ");
 
 const FALLBACK_MODELS = [
-  "gemini-3.7-flash",
-  "gemini-3.6-flash",
-  "gemini-3.5-flash-lite",
   "gemini-2.5-flash",
   "gemini-2.0-flash",
   "gemini-1.5-flash",
+  "gemini-3.5-flash-lite",
   "gemini-flash-latest",
+  "gemini-3.6-flash",
+  "gemini-3.7-flash",
 ];
 
 export type ImagePart = { mime: string; base64: string };
@@ -71,6 +71,21 @@ function asKind(value: unknown): InstallmentKind {
   return "other";
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function modelRank(name: string) {
+  const exact = FALLBACK_MODELS.indexOf(name);
+  if (exact >= 0) return exact;
+  if (/2\.5-flash/.test(name)) return 0;
+  if (/2\.0-flash/.test(name)) return 1;
+  if (/1\.5-flash/.test(name)) return 2;
+  if (/flash-lite/.test(name)) return 3;
+  if (/3\.7/.test(name)) return 9;
+  return 5;
+}
+
 async function listGeminiModels(apiKey: string): Promise<string[]> {
   try {
     const res = await fetch(
@@ -83,9 +98,8 @@ async function listGeminiModels(apiKey: string): Promise<string[]> {
     const names = (body.models ?? [])
       .filter((m) => (m.supportedGenerationMethods ?? []).includes("generateContent"))
       .map((m) => String(m.name ?? "").replace(/^models\//, ""))
-      .filter(Boolean);
-    const preferred = names.filter((n) => /flash/i.test(n) && !/tts|image|exp/i.test(n));
-    return preferred.length ? preferred : names;
+      .filter((n) => /flash/i.test(n) && !/tts|image|exp|preview/i.test(n));
+    return names.sort((a, b) => modelRank(a) - modelRank(b));
   } catch {
     return [];
   }
@@ -113,48 +127,73 @@ export async function geminiGenerate(apiKey: string, input: ChatInput): Promise<
   };
 
   const listed = await listGeminiModels(apiKey);
-  const models = [...listed, ...FALLBACK_MODELS.filter((m) => !listed.includes(m))];
+  const models = [...listed, ...FALLBACK_MODELS.filter((m) => !listed.includes(m))].slice(0, 6);
 
   let lastStatus = 0;
   for (const model of models) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    lastStatus = res.status;
-    if (res.status === 404) continue;
-    if (!res.ok) {
-      if (res.status === 400 || res.status === 403) {
-        return {
-          ok: false,
-          error: "Chave do Gemini recusada. Cole de novo em Casa, sem aspas nem espaço.",
-        };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } catch {
+        lastStatus = 0;
+        break;
+      }
+      lastStatus = res.status;
+      if (res.status === 404) break;
+      if (res.status === 503 || res.status === 500 || res.status === 502 || res.status === 504) {
+        if (attempt === 0) {
+          await wait(900);
+          continue;
+        }
+        break;
       }
       if (res.status === 429) {
-        return { ok: false, error: "Gemini está no limite de hoje. Tente de novo mais tarde." };
+        if (attempt === 0) {
+          await wait(1200);
+          continue;
+        }
+        break;
       }
-      return { ok: false, error: `Não consegui ler o documento (${res.status}).` };
+      if (!res.ok) {
+        if (res.status === 400 || res.status === 403) {
+          return {
+            ok: false,
+            error: "Chave do Gemini recusada. Cole de novo em Casa, sem aspas nem espaço.",
+          };
+        }
+        break;
+      }
+      const body = (await res.json()) as {
+        candidates?: { content?: { parts?: { text?: string }[] } }[];
+      };
+      const text = body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+      if (!text) break;
+      return { ok: true, text };
     }
-    const body = (await res.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
-      error?: { message?: string };
-    };
-    const text = body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
-    if (!text) {
-      return { ok: false, error: "O Gemini não devolveu o texto da nota." };
-    }
-    return { ok: true, text };
   }
 
-  return {
-    ok: false,
-    error:
-      lastStatus === 404
-        ? "Sua chave do Gemini não tem um modelo disponível. Gere outra em aistudio.google.com/apikey."
-        : `Não consegui ler o documento (${lastStatus}).`,
-  };
+  if (lastStatus === 503 || lastStatus === 500 || lastStatus === 502 || lastStatus === 504) {
+    return {
+      ok: false,
+      error: "O Gemini está congestionado agora. Espere 20 segundos e tire a foto de novo.",
+    };
+  }
+  if (lastStatus === 429) {
+    return { ok: false, error: "Gemini está no limite de hoje. Tente de novo mais tarde." };
+  }
+  if (lastStatus === 404 || lastStatus === 0) {
+    return {
+      ok: false,
+      error: "Sua chave do Gemini não liberou um modelo. Gere outra em aistudio.google.com/apikey.",
+    };
+  }
+  return { ok: false, error: `Não consegui ler o documento (${lastStatus}).` };
 }
 
 export async function extractWithGemini(data: ExtractPayload): Promise<
