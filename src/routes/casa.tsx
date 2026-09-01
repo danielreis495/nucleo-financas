@@ -161,6 +161,8 @@ function CasaPage() {
         Ver conselhos de corte
       </Link>
 
+      <GeminiKeyCard />
+
       <div className="mt-8 flex flex-col gap-2">
         <Button
           variant="secondary"
@@ -183,5 +185,70 @@ function CasaPage() {
         </Button>
       </div>
     </main>
+  );
+}
+
+function GeminiKeyCard() {
+  const saved = useFinanceStore((s) => s.geminiKey);
+  const setGeminiKey = useFinanceStore((s) => s.setGeminiKey);
+  const [draft, setDraft] = useState("");
+
+  const tail = saved.length > 6 ? saved.slice(-4) : "";
+
+  return (
+    <section className="mt-6 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+      <h2 className="font-display text-xl">Chave do Gemini</h2>
+      <p className="mt-1 text-sm text-muted">
+        Cole aqui, no app. Não precisa da Vercel. Pegue em{" "}
+        <a
+          href="https://aistudio.google.com/apikey"
+          target="_blank"
+          rel="noreferrer"
+          className="underline underline-offset-2"
+        >
+          aistudio.google.com/apikey
+        </a>
+        .
+      </p>
+      {saved ? (
+        <p className="mt-3 text-sm text-primary">Salva · termina em {tail}</p>
+      ) : (
+        <p className="mt-3 text-sm text-muted">Ainda não tem chave neste aparelho.</p>
+      )}
+      <input
+        type="password"
+        autoComplete="off"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder="AIza…"
+        className="mt-3 h-11 w-full rounded-md bg-surface px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
+      />
+      <div className="mt-3 flex gap-2">
+        <Button
+          className="flex-1"
+          disabled={!draft.trim()}
+          onClick={() => {
+            setGeminiKey(draft);
+            setDraft("");
+            toast.success("Chave salva neste celular");
+          }}
+        >
+          Salvar
+        </Button>
+        {saved ? (
+          <Button
+            variant="ghost"
+            className="text-danger"
+            onClick={() => {
+              setGeminiKey("");
+              setDraft("");
+              toast.success("Chave apagada");
+            }}
+          >
+            Apagar
+          </Button>
+        ) : null}
+      </div>
+    </section>
   );
 }

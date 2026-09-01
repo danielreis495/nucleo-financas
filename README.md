@@ -12,15 +12,13 @@ Quando terminar, a Vercel te dá um link (algo como `nucleo-financas.vercel.app`
 
 ### Leitura automática com Gemini (grátis)
 
-Foto, PDF e conselhos usam a chave gratuita do [Google AI Studio](https://aistudio.google.com/apikey).
+Não cole a chave na Vercel. Cole **dentro do app**:
 
-1. Abra [aistudio.google.com/apikey](https://aistudio.google.com/apikey) e copie sua chave.
-2. Na Vercel: **Settings → Environment Variables**
-   - Nome: `GEMINI_API_KEY`
-   - Valor: a chave (começa com `AIza`)
-3. **Redeploy**.
+1. Pegue a chave em [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+2. No Núcleo, abra **Casa**.
+3. Em **Chave do Gemini**, cole e toque **Salvar**.
 
-Sem a chave, o resto do app funciona (lançamento rápido, pessoas, parcelas, extrato).
+A chave fica neste aparelho. Sem ela, o resto do app funciona (lançamento rápido, pessoas, parcelas, extrato).
 
 ## No celular
 

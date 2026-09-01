@@ -51,6 +51,8 @@ type FinanceActions = {
   }) => void;
   setAdvice: (advice: AdviceCache | null) => void;
   advanceDueInstallments: () => void;
+  geminiKey: string;
+  setGeminiKey: (key: string) => void;
 };
 
 const emptyState = (): FinanceState => ({
@@ -115,19 +117,23 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
       ...createSeedState(),
       hydrated: false,
       viewMonth: monthKey(new Date()),
+      geminiKey: "",
       setHydrated: (v) => set({ hydrated: v }),
       setViewMonth: (viewMonth) => set({ viewMonth }),
+      setGeminiKey: (key) => set({ geminiKey: key.trim() }),
       resetDemo: () =>
         set({
           ...createSeedState(),
           hydrated: true,
           viewMonth: monthKey(new Date()),
+          geminiKey: get().geminiKey,
         }),
       clearAll: () =>
         set({
           ...emptyState(),
           hydrated: true,
           viewMonth: monthKey(new Date()),
+          geminiKey: get().geminiKey,
         }),
       setHouseholdName: (householdName) => set({ householdName }),
       addPerson: ({ name, role, color }) =>
@@ -291,6 +297,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         budgets: s.budgets,
         advice: s.advice,
         demo: s.demo,
+        geminiKey: s.geminiKey,
       }),
     },
   ),

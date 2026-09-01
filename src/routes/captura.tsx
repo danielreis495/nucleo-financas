@@ -16,6 +16,7 @@ export const Route = createFileRoute("/captura")({ component: CapturaPage });
 
 function CapturaPage() {
   const people = useFinanceStore((s) => s.people);
+  const geminiKey = useFinanceStore((s) => s.geminiKey);
   const importExtracted = useFinanceStore((s) => s.importExtracted);
   const addQuick = useFinanceStore((s) => s.addQuickExpense);
   const navigate = useNavigate();
@@ -51,6 +52,7 @@ function CapturaPage() {
           people: people.map((p) => ({ id: p.id, name: p.name, role: p.role })),
           defaultPersonId: casa?.id ?? people[0]?.id ?? "",
           today: todayIso(),
+          apiKey: geminiKey || undefined,
         },
       });
       if (!result.ok) {

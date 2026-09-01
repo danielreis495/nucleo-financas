@@ -15,6 +15,7 @@ type ExtractPayload = {
   people: { id: string; name: string; role: string }[];
   defaultPersonId: string;
   today: string;
+  apiKey?: string;
 };
 
 type AdvicePayload = {
@@ -27,6 +28,7 @@ type AdvicePayload = {
   subscriptions: { name: string; amount: number }[];
   installments: { title: string; remaining: number; amount: number }[];
   merchants: { name: string; amount: number; count: number }[];
+  apiKey?: string;
 };
 
 type ChatInput = {
@@ -34,6 +36,7 @@ type ChatInput = {
   text: string;
   images?: ImagePart[];
   maxTokens: number;
+  apiKey?: string;
 };
 
 function parseJsonObject(raw: string): unknown {
@@ -46,8 +49,13 @@ function parseJsonObject(raw: string): unknown {
   return JSON.parse(body.slice(start, end + 1));
 }
 
-function geminiKey() {
-  return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
+function readEnv(name: string) {
+  try {
+    const g = globalThis as { process?: { env?: Record<string, string | undefined> } };
+    return String(g.process?.env?.[name] ?? "").trim();
+  } catch {
+    return "";
+  }
 }
 
 async function geminiChat(apiKey: string, input: ChatInput) {
@@ -62,7 +70,7 @@ async function geminiChat(apiKey: string, input: ChatInput) {
   }
 
   const payload = {
-    system_instruction: { parts: [{ text: input.system }] },
+    systemInstruction: { parts: [{ text: input.system }] },
     contents: [{ role: "user", parts }],
     generationConfig: {
       temperature: 0.2,
@@ -72,6 +80,7 @@ async function geminiChat(apiKey: string, input: ChatInput) {
   };
 
   let lastStatus = 0;
+  let lastBody = "";
   for (const model of GEMINI_MODELS) {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
@@ -87,6 +96,13 @@ async function geminiChat(apiKey: string, input: ChatInput) {
     lastStatus = res.status;
     if (res.status === 404) continue;
     if (!res.ok) {
+      lastBody = await res.text().catch(() => "");
+      if (res.status === 400 || res.status === 403) {
+        return {
+          ok: false as const,
+          error: "Chave do Gemini recusada. Cole de novo em Casa, sem aspas nem espaço.",
+        };
+      }
       return { ok: false as const, error: `Não consegui ler o documento (${res.status}).` };
     }
     const body = (await res.json()) as {
@@ -96,7 +112,12 @@ async function geminiChat(apiKey: string, input: ChatInput) {
     return { ok: true as const, text };
   }
 
-  return { ok: false as const, error: `Não consegui ler o documento (${lastStatus}).` };
+  return {
+    ok: false as const,
+    error: lastBody
+      ? `Não consegui ler o documento (${lastStatus}).`
+      : `Não consegui ler o documento (${lastStatus}).`,
+  };
 }
 
 async function grokChat(apiKey: string, input: ChatInput) {
@@ -137,13 +158,13 @@ async function grokChat(apiKey: string, input: ChatInput) {
 }
 
 async function llmChat(input: ChatInput) {
-  const gemini = geminiKey();
+  const gemini = (input.apiKey ?? "").trim() || readEnv("GEMINI_API_KEY") || readEnv("GOOGLE_API_KEY");
   if (gemini) return geminiChat(gemini, input);
-  const xai = process.env.XAI_API_KEY;
+  const xai = readEnv("XAI_API_KEY");
   if (xai) return grokChat(xai, input);
   return {
     ok: false as const,
-    error: "Falta a chave do Gemini. Coloque GEMINI_API_KEY na Vercel.",
+    error: "Cole a chave do Gemini em Casa (abaixo das pessoas).",
   };
 }
 
@@ -201,6 +222,7 @@ Regras:
       text,
       images: data.images,
       maxTokens: 2200,
+      apiKey: data.apiKey,
     });
 
     if (!result.ok) return result;
@@ -241,6 +263,7 @@ Regras:
 export const adviseSpending = createServerFn({ method: "POST" })
   .validator((input: AdvicePayload) => input)
   .handler(async ({ data }) => {
+    const { apiKey, ...facts } = data;
     const system = `Você é um conselheiro financeiro direto, em português do Brasil, para um orçamento doméstico.
 Sem moralismo, sem enrolação. Foque em cortes concretos e no peso das parcelas.
 Responda APENAS JSON:
@@ -260,8 +283,9 @@ Responda APENAS JSON:
 
     const result = await llmChat({
       system,
-      text: JSON.stringify(data),
+      text: JSON.stringify(facts),
       maxTokens: 1200,
+      apiKey,
     });
 
     if (!result.ok) return result;

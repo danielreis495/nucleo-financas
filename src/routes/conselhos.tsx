@@ -70,6 +70,7 @@ function ConselhosPage() {
           subscriptions,
           installments,
           merchants,
+          apiKey: state.geminiKey || undefined,
         },
       });
       if (!result.ok) {
