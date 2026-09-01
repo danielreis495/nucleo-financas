@@ -59,20 +59,32 @@ function ConselhosPage() {
         return { title: plan.title, remaining: p.total - p.paid, amount: plan.installmentAmount };
       });
 
-      const result = await adviseSpending({
-        data: {
-          monthKey: month,
-          householdName: state.householdName,
-          people,
-          totals,
-          previous: { expense: prev.expense },
-          categories,
-          subscriptions,
-          installments,
-          merchants,
-          apiKey: state.geminiKey || undefined,
-        },
-      });
+      const result = state.geminiKey
+        ? await (await import("@/lib/gemini")).adviseWithGemini({
+            monthKey: month,
+            householdName: state.householdName,
+            people,
+            totals,
+            previous: { expense: prev.expense },
+            categories,
+            subscriptions,
+            installments,
+            merchants,
+            apiKey: state.geminiKey,
+          })
+        : await adviseSpending({
+            data: {
+              monthKey: month,
+              householdName: state.householdName,
+              people,
+              totals,
+              previous: { expense: prev.expense },
+              categories,
+              subscriptions,
+              installments,
+              merchants,
+            },
+          });
       if (!result.ok) {
         toast.error(result.error);
         return;

@@ -45,16 +45,17 @@ function CapturaPage() {
       setSource(prepared.source);
       setStatus("Extraindo lançamentos…");
       const casa = people.find((p) => p.role === "other") ?? people[0];
-      const result = await extractDocument({
-        data: {
-          text: prepared.text,
-          images: prepared.images,
-          people: people.map((p) => ({ id: p.id, name: p.name, role: p.role })),
-          defaultPersonId: casa?.id ?? people[0]?.id ?? "",
-          today: todayIso(),
-          apiKey: geminiKey || undefined,
-        },
-      });
+      const payload = {
+        text: prepared.text,
+        images: prepared.images,
+        people: people.map((p) => ({ id: p.id, name: p.name, role: p.role })),
+        defaultPersonId: casa?.id ?? people[0]?.id ?? "",
+        today: todayIso(),
+        apiKey: geminiKey || undefined,
+      };
+      const result = geminiKey
+        ? await (await import("@/lib/gemini")).extractWithGemini(payload)
+        : await extractDocument({ data: payload });
       if (!result.ok) {
         toast.error(result.error);
         return;
