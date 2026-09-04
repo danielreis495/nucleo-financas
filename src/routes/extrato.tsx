@@ -1,10 +1,10 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { CategoryPicker } from "@/components/category-picker";
 import { MonthHeader } from "@/components/month-header";
 import { PersonAvatar } from "@/components/person-avatar";
 import { SwipeRow } from "@/components/swipe-row";
+import { TransactionEdit } from "@/components/transaction-edit";
 import { categoriesFor, categoryLabel } from "@/lib/categories";
 import { formatBRL, formatLongDate } from "@/lib/money";
 import { monthTransactions, personById } from "@/lib/selectors";
@@ -12,21 +12,34 @@ import { useFinanceStore } from "@/lib/store";
 import type { CategoryId, Transaction } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/extrato")({ component: ExtratoPage });
+type ExtratoSearch = { cat?: string };
+
+export const Route = createFileRoute("/extrato")({
+  validateSearch: (search: Record<string, unknown>): ExtratoSearch => ({
+    cat: typeof search.cat === "string" ? search.cat : undefined,
+  }),
+  component: ExtratoPage,
+});
 
 function ExtratoPage() {
+  const { cat } = Route.useSearch();
   const month = useFinanceStore((s) => s.viewMonth);
   const setMonth = useFinanceStore((s) => s.setViewMonth);
   const state = useFinanceStore();
   const custom = useFinanceStore((s) => s.customCategories);
   const remove = useFinanceStore((s) => s.removeTransaction);
   const restore = useFinanceStore((s) => s.restoreTransaction);
-  const update = useFinanceStore((s) => s.updateTransaction);
   const [personId, setPersonId] = useState<string | "all">("all");
-  const [category, setCategory] = useState<CategoryId | "all">("all");
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [category, setCategory] = useState<CategoryId | "all">(cat ?? "all");
+  const [editing, setEditing] = useState<Transaction | null>(null);
+
+  useEffect(() => {
+    if (cat) setCategory(cat);
+  }, [cat]);
 
   const expenseCats = categoriesFor("gasto", custom);
+  const incomeCats = categoriesFor("entrada", custom);
+  const filterCats = [...expenseCats, ...incomeCats];
 
   const rows = useMemo(() => {
     return monthTransactions(state, month, true)
@@ -45,9 +58,12 @@ function ExtratoPage() {
     return [...map.entries()];
   }, [rows]);
 
+  const total = rows.reduce((acc, t) => acc + (t.type === "income" ? t.amount : -t.amount), 0);
+  const catLabel = category === "all" ? null : categoryLabel(category, custom);
+
   function handleDelete(tx: Transaction) {
     remove(tx.id);
-    if (openId === tx.id) setOpenId(null);
+    if (editing?.id === tx.id) setEditing(null);
     toast("Lançamento apagado", {
       duration: 7000,
       action: {
@@ -60,6 +76,16 @@ function ExtratoPage() {
   return (
     <main className="flex flex-col pb-6">
       <MonthHeader month={month} onChange={setMonth} kicker="Extrato" />
+
+      {catLabel ? (
+        <div className="mx-5 mb-3 rounded-xl bg-elevated px-4 py-3 shadow-[var(--shadow-border)]">
+          <p className="text-xs font-medium tracking-wide text-muted uppercase">Categoria</p>
+          <p className="font-display text-2xl tracking-tight">{catLabel}</p>
+          <p className="mt-1 text-sm text-muted">
+            {rows.length} lançamento{rows.length === 1 ? "" : "s"} · {formatBRL(Math.abs(total))}
+          </p>
+        </div>
+      ) : null}
 
       <div className="flex gap-2 overflow-x-auto px-5 pb-2">
         <FilterChip active={personId === "all"} onClick={() => setPersonId("all")}>
@@ -75,7 +101,7 @@ function ExtratoPage() {
         <FilterChip active={category === "all"} onClick={() => setCategory("all")}>
           Categorias
         </FilterChip>
-        {expenseCats.map((c) => (
+        {filterCats.map((c) => (
           <FilterChip key={c.id} active={category === c.id} onClick={() => setCategory(c.id)}>
             {c.label}
           </FilterChip>
@@ -94,66 +120,35 @@ function ExtratoPage() {
               {list.map((t, i) => {
                 const person = personById(state.people, t.personId);
                 const scheduled = t.status === "scheduled";
-                const open = openId === t.id;
                 return (
                   <li key={t.id} className={i > 0 ? "border-t border-line" : ""}>
                     <SwipeRow onDelete={() => handleDelete(t)}>
-                      <div className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          {person ? <PersonAvatar person={person} size="sm" /> : null}
-                          <button
-                            className="min-w-0 flex-1 text-left"
-                            onClick={() => setOpenId(open ? null : t.id)}
-                          >
-                            <p className="truncate text-sm font-medium">{t.merchant}</p>
-                            <p className="text-xs text-muted">
-                              {categoryLabel(t.category, custom)}
-                              {t.installmentIndex
-                                ? ` · ${t.installmentIndex}/${t.installmentTotal}`
-                                : ""}
-                              {scheduled ? " · agendado" : ""}
-                            </p>
-                          </button>
-                          <p
-                            className={cn(
-                              "font-display text-sm tabular-nums",
-                              t.type === "income" ? "text-income" : "text-fg",
-                              scheduled && "text-muted",
-                            )}
-                          >
-                            {t.type === "income" ? "+" : "−"}
-                            {formatBRL(t.amount)}
-                          </p>
-                        </div>
-                        {open ? (
-                          <div className="mt-3">
-                            <p className="mb-2 text-xs font-medium text-muted">Categoria</p>
-                            <CategoryPicker
-                              value={t.category}
-                              group={t.type === "income" ? "entrada" : "gasto"}
-                              onChange={(id) => update(t.id, { category: id })}
-                            />
-                            <p className="mt-3 mb-2 text-xs font-medium text-muted">Quem</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {state.people.map((p) => (
-                                <button
-                                  key={p.id}
-                                  onClick={() => update(t.id, { personId: p.id })}
-                                  className={cn(
-                                    "inline-flex h-9 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium",
-                                    t.personId === p.id
-                                      ? "bg-primary text-primary-fg"
-                                      : "bg-line text-fg",
-                                  )}
-                                >
-                                  <PersonAvatar person={p} size="sm" />
-                                  {p.name}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
+                      <button
+                        className="flex w-full items-center gap-3 bg-elevated px-4 py-3 text-left"
+                        onClick={() => setEditing(t)}
+                      >
+                        {person ? <PersonAvatar person={person} size="sm" /> : null}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">{t.merchant}</span>
+                          <span className="block text-xs text-muted">
+                            {categoryLabel(t.category, custom)}
+                            {t.installmentIndex
+                              ? ` · ${t.installmentIndex}/${t.installmentTotal}`
+                              : ""}
+                            {scheduled ? " · agendado" : ""}
+                          </span>
+                        </span>
+                        <span
+                          className={cn(
+                            "font-display text-sm tabular-nums",
+                            t.type === "income" ? "text-income" : "text-fg",
+                            scheduled && "text-muted",
+                          )}
+                        >
+                          {t.type === "income" ? "+" : "−"}
+                          {formatBRL(t.amount)}
+                        </span>
+                      </button>
                     </SwipeRow>
                   </li>
                 );
@@ -162,6 +157,10 @@ function ExtratoPage() {
           </section>
         ))
       )}
+
+      {editing && state.transactions.some((t) => t.id === editing.id) ? (
+        <TransactionEdit tx={editing} onClose={() => setEditing(null)} />
+      ) : null}
     </main>
   );
 }

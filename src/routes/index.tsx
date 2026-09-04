@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowDownRight, ArrowUpRight, Sparkles } from "lucide-react";
 import { MonthHeader } from "@/components/month-header";
 import { PersonAvatar } from "@/components/person-avatar";
+import { TransactionEdit } from "@/components/transaction-edit";
 import { categoryLabel } from "@/lib/categories";
 import { formatBRL, formatBRLCompact, formatShortDate } from "@/lib/money";
 import {
@@ -15,6 +17,7 @@ import {
   upcomingInstallments,
 } from "@/lib/selectors";
 import { useFinanceStore } from "@/lib/store";
+import type { Transaction } from "@/lib/types";
 import { cn, todayIso } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({ component: Home });
@@ -25,7 +28,7 @@ function Home() {
   const state = useFinanceStore();
   const totals = totalsForMonth(state, month);
   const rows = monthTransactions(state, month);
-  const cats = spendByCategory(rows).slice(0, 5);
+  const cats = spendByCategory(rows);
   const people = spendByPerson(rows, state.people);
   const days = dailySpend(rows, month);
   const maxDay = Math.max(1, ...days);
@@ -37,6 +40,7 @@ function Home() {
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 5);
   const overBudget = budgets.filter((b) => b.ratio > 1);
+  const [editing, setEditing] = useState<Transaction | null>(null);
 
   return (
     <main className="stagger-in flex flex-col gap-5 pb-6">
@@ -111,19 +115,25 @@ function Home() {
             const over = budget ? c.amount > budget.monthlyLimit : false;
             return (
               <li key={c.category}>
-                <div className="mb-1 flex items-baseline justify-between text-sm">
-                  <span className="font-medium">{categoryLabel(c.category, state.customCategories)}</span>
-                  <span className={cn("tabular-nums", over ? "text-danger" : "text-muted")}>
-                    {formatBRL(c.amount)}
-                    {budget ? ` / ${formatBRLCompact(budget.monthlyLimit)}` : ""}
-                  </span>
-                </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-line">
-                  <div
-                    className={cn("h-full rounded-full", over ? "bg-danger" : "bg-primary")}
-                    style={{ width: `${Math.min(100, (c.amount / max) * 100)}%` }}
-                  />
-                </div>
+                <Link
+                  to="/extrato"
+                  search={{ cat: c.category }}
+                  className="block"
+                >
+                  <div className="mb-1 flex items-baseline justify-between text-sm">
+                    <span className="font-medium">{categoryLabel(c.category, state.customCategories)}</span>
+                    <span className={cn("tabular-nums", over ? "text-danger" : "text-muted")}>
+                      {formatBRL(c.amount)}
+                      {budget ? ` / ${formatBRLCompact(budget.monthlyLimit)}` : ""}
+                    </span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-line">
+                    <div
+                      className={cn("h-full rounded-full", over ? "bg-danger" : "bg-primary")}
+                      style={{ width: `${Math.min(100, (c.amount / max) * 100)}%` }}
+                    />
+                  </div>
+                </Link>
               </li>
             );
           })}
@@ -189,20 +199,29 @@ function Home() {
           {recent.map((t) => {
             const person = state.people.find((p) => p.id === t.personId);
             return (
-              <li key={t.id} className="flex items-center gap-3 py-3">
-                {person ? <PersonAvatar person={person} size="sm" /> : null}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{t.merchant}</p>
-                  <p className="text-xs text-muted">
-                    {categoryLabel(t.category, state.customCategories)} · {formatShortDate(t.date)}
-                  </p>
-                </div>
-                <p className="font-display tabular-nums">−{formatBRL(t.amount)}</p>
+              <li key={t.id}>
+                <button
+                  className="flex w-full items-center gap-3 py-3 text-left"
+                  onClick={() => setEditing(t)}
+                >
+                  {person ? <PersonAvatar person={person} size="sm" /> : null}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{t.merchant}</span>
+                    <span className="block text-xs text-muted">
+                      {categoryLabel(t.category, state.customCategories)} · {formatShortDate(t.date)}
+                    </span>
+                  </span>
+                  <span className="font-display tabular-nums">−{formatBRL(t.amount)}</span>
+                </button>
               </li>
             );
           })}
         </ul>
       </section>
+
+      {editing && state.transactions.some((t) => t.id === editing.id) ? (
+        <TransactionEdit tx={editing} onClose={() => setEditing(null)} />
+      ) : null}
     </main>
   );
 }
