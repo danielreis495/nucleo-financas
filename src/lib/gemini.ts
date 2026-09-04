@@ -1,4 +1,5 @@
 import { CATEGORIES } from "./categories";
+import { parseLooseAmount } from "./money";
 import type { AdviceItem, CategoryId, ExtractedItem, InstallmentKind, TxType } from "./types";
 import { uid } from "./utils";
 
@@ -55,6 +56,30 @@ function parseJsonObject(raw: string): unknown {
   const end = body.lastIndexOf("}");
   if (start < 0 || end < 0) throw new Error("Resposta sem JSON");
   return JSON.parse(body.slice(start, end + 1));
+}
+
+function asAmount(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.abs(value);
+  return Math.abs(parseLooseAmount(String(value ?? "")));
+}
+
+function asDate(value: unknown, today: string) {
+  const raw = String(value ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const br = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (br) {
+    const d = br[1].padStart(2, "0");
+    const m = br[2].padStart(2, "0");
+    let y = Number(br[3]);
+    if (y < 100) y += 2000;
+    return `${y}-${m}-${d}`;
+  }
+  const dm = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})$/);
+  if (dm) {
+    const year = today.slice(0, 4);
+    return `${year}-${dm[2].padStart(2, "0")}-${dm[1].padStart(2, "0")}`;
+  }
+  return today;
 }
 
 function asCategory(value: unknown): CategoryId {
@@ -205,7 +230,7 @@ export async function extractWithGemini(data: ExtractPayload): Promise<
   }
 
   const peopleList = data.people.map((p) => `${p.name} (${p.id}, ${p.role})`).join("; ");
-  const system = `Você extrai lançamentos financeiros de comprovantes brasileiros (notas, faturas de cartão, boletos, extratos, planilhas).
+  const system = `Você extrai lançamentos de documentos financeiros brasileiros: fatura de cartão, extrato, boleto, NF e planilha.
 Responda APENAS um JSON válido, sem markdown:
 {
   "items": [
@@ -221,56 +246,68 @@ Responda APENAS um JSON válido, sem markdown:
     }
   ]
 }
-Regras:
-- Valores em reais, ponto decimal.
-- Junte itens miúdos de uma mesma nota em 1 lançamento, a menos que sejam categorias diferentes.
-- Detecte parcelas no formato 3/12, 10x, "em 12 vezes". amount é o valor DA PARCELA, não o total.
-- Fatura de cartão: um item por compra, ignore totais e pagamentos da fatura.
-- Ignore taxas de juros como lançamento separado se já estiverem no valor da parcela.
-- personId só se o nome da pessoa aparecer; senão use ${data.defaultPersonId}.
-- Data de hoje: ${data.today}. Se a data não aparecer, use hoje.
+
+FATURA / EXTRATO DE CARTÃO (Nubank, Inter, Itaú, C6, Bradesco, Santander, PicPay, etc.):
+- UM item para CADA compra da lista de lançamentos.
+- NÃO junte compras. NÃO use o total da fatura como um único gasto.
+- Ignore: pagamento recebido, valor total, saldo anterior, limite, vencimento, rotativo, encargo, IOF isolado, anuidade se for zero, publicidade.
+- Data da compra (não a do vencimento). Formato no PDF costuma ser DD/MM ou DD/MM/AA → converta para YYYY-MM-DD. Ano de referência: ${data.today.slice(0, 4)}.
+- amount é o valor daquela linha, em reais com ponto decimal (32,90 → 32.9).
+- Parcela na linha (ex.: 03/10, 3/12, 10x): installment.current/total, kind "card", amount = valor da parcela.
+- Estorno / crédito na fatura: type "income".
+- Pix, TED e boleto no extrato: cada um é um item.
+
+NOTA FISCAL / CUPOM (uma loja só):
+- Aí sim pode juntar itens miúdos da mesma categoria.
+
+Geral:
+- personId só se o nome aparecer; senão ${data.defaultPersonId}.
 - Pessoas da casa: ${peopleList}
-- No máximo 40 itens, os mais relevantes.`;
+- Hoje: ${data.today}
+- Até 80 itens, todos os lançamentos reais.`;
 
   const text = data.text
-    ? `Documento / planilha:\n${data.text.slice(0, 18000)}`
-    : "Extraia os lançamentos destas imagens.";
+    ? `Documento:\n${data.text.slice(0, 36000)}`
+    : "Extraia os lançamentos destas imagens. Se for fatura, cada compra é um item.";
 
   const result = await geminiGenerate(apiKey, {
     system,
     text,
     images: data.images,
-    maxTokens: 2200,
+    maxTokens: 8192,
   });
   if (!result.ok) return result;
 
   try {
     const parsed = parseJsonObject(result.text) as { items?: unknown[] };
-    const items: ExtractedItem[] = (parsed.items ?? []).slice(0, 40).map((raw) => {
-      const row = (raw ?? {}) as Record<string, unknown>;
-      const inst = row.installment as Record<string, unknown> | null;
-      return {
-        id: uid(),
-        description: String(row.description ?? row.merchant ?? "Lançamento"),
-        merchant: String(row.merchant ?? row.description ?? "Comércio"),
-        amount: Math.abs(Number(row.amount) || 0),
-        date: String(row.date ?? data.today).slice(0, 10),
-        type: asType(row.type),
-        category: asCategory(row.category),
-        personId: data.people.some((p) => p.id === row.personId)
-          ? String(row.personId)
-          : data.defaultPersonId,
-        selected: true,
-        installment:
-          inst && Number(inst.total) > 1
-            ? {
-                current: Math.max(1, Number(inst.current) || 1),
-                total: Math.max(2, Number(inst.total) || 2),
-                kind: asKind(inst.kind),
-              }
-            : null,
-      };
-    });
+    const items: ExtractedItem[] = (parsed.items ?? [])
+      .slice(0, 80)
+      .map((raw) => {
+        const row = (raw ?? {}) as Record<string, unknown>;
+        const inst = row.installment as Record<string, unknown> | null;
+        return {
+          id: uid(),
+          description: String(row.description ?? row.merchant ?? "Lançamento"),
+          merchant: String(row.merchant ?? row.description ?? "Comércio"),
+          amount: asAmount(row.amount),
+          date: asDate(row.date, data.today),
+          type: asType(row.type),
+          category: asCategory(row.category),
+          personId: data.people.some((p) => p.id === row.personId)
+            ? String(row.personId)
+            : data.defaultPersonId,
+          selected: true,
+          installment:
+            inst && Number(inst.total) > 1
+              ? {
+                  current: Math.max(1, Number(inst.current) || 1),
+                  total: Math.max(2, Number(inst.total) || 2),
+                  kind: asKind(inst.kind),
+                }
+              : null,
+        };
+      })
+      .filter((item) => item.amount > 0);
     return { ok: true, items };
   } catch {
     return { ok: false, error: "Não entendi o documento. Tente outra foto ou um PDF mais nítido." };

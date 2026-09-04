@@ -43,7 +43,11 @@ function CapturaPage() {
       const { prepareFile } = await import("@/lib/extract-client");
       const prepared = await prepareFile(files[0]);
       setSource(prepared.source);
-      setStatus("Extraindo lançamentos…");
+      setStatus(
+        prepared.source === "pdf"
+          ? "Lendo fatura e compras…"
+          : "Extraindo lançamentos…",
+      );
       const casa = people.find((p) => p.role === "other") ?? people[0];
       const payload = {
         text: prepared.text,
