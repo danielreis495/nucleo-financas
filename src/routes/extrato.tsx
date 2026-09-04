@@ -1,9 +1,11 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { CategoryPicker } from "@/components/category-picker";
 import { MonthHeader } from "@/components/month-header";
 import { PersonAvatar } from "@/components/person-avatar";
-import { CATEGORIES, categoryLabel, EXPENSE_CATEGORIES } from "@/lib/categories";
+import { SwipeRow } from "@/components/swipe-row";
+import { categoriesFor, categoryLabel } from "@/lib/categories";
 import { formatBRL, formatLongDate } from "@/lib/money";
 import { monthTransactions, personById } from "@/lib/selectors";
 import { useFinanceStore } from "@/lib/store";
@@ -16,12 +18,15 @@ function ExtratoPage() {
   const month = useFinanceStore((s) => s.viewMonth);
   const setMonth = useFinanceStore((s) => s.setViewMonth);
   const state = useFinanceStore();
+  const custom = useFinanceStore((s) => s.customCategories);
   const remove = useFinanceStore((s) => s.removeTransaction);
   const restore = useFinanceStore((s) => s.restoreTransaction);
   const update = useFinanceStore((s) => s.updateTransaction);
   const [personId, setPersonId] = useState<string | "all">("all");
   const [category, setCategory] = useState<CategoryId | "all">("all");
   const [openId, setOpenId] = useState<string | null>(null);
+
+  const expenseCats = categoriesFor("gasto", custom);
 
   const rows = useMemo(() => {
     return monthTransactions(state, month, true)
@@ -70,7 +75,7 @@ function ExtratoPage() {
         <FilterChip active={category === "all"} onClick={() => setCategory("all")}>
           Categorias
         </FilterChip>
-        {EXPENSE_CATEGORIES.map((c) => (
+        {expenseCats.map((c) => (
           <FilterChip key={c.id} active={category === c.id} onClick={() => setCategory(c.id)}>
             {c.label}
           </FilterChip>
@@ -85,86 +90,71 @@ function ExtratoPage() {
             <h2 className="mb-2 text-xs font-medium tracking-wide text-muted uppercase">
               {formatLongDate(date)}
             </h2>
-            <ul className="divide-y divide-line rounded-xl bg-elevated px-4 shadow-[var(--shadow-border)]">
-              {list.map((t) => {
+            <ul className="overflow-hidden rounded-xl shadow-[var(--shadow-border)]">
+              {list.map((t, i) => {
                 const person = personById(state.people, t.personId);
                 const scheduled = t.status === "scheduled";
                 const open = openId === t.id;
-                const cats = CATEGORIES.filter((c) =>
-                  t.type === "income" ? c.group === "entrada" : c.group === "gasto",
-                );
                 return (
-                  <li key={t.id} className="py-3">
-                    <div className="flex items-center gap-3">
-                      {person ? <PersonAvatar person={person} size="sm" /> : null}
-                      <button
-                        className="min-w-0 flex-1 text-left"
-                        onClick={() => setOpenId(open ? null : t.id)}
-                      >
-                        <p className="truncate text-sm font-medium">{t.merchant}</p>
-                        <p className="text-xs text-muted">
-                          {categoryLabel(t.category)}
-                          {t.installmentIndex
-                            ? ` · ${t.installmentIndex}/${t.installmentTotal}`
-                            : ""}
-                          {scheduled ? " · agendado" : ""}
-                          {open ? "" : " · tocar para mudar"}
-                        </p>
-                      </button>
-                      <div className="text-right">
-                        <p
-                          className={cn(
-                            "font-display text-sm tabular-nums",
-                            t.type === "income" ? "text-income" : "text-fg",
-                            scheduled && "text-muted",
-                          )}
-                        >
-                          {t.type === "income" ? "+" : "−"}
-                          {formatBRL(t.amount)}
-                        </p>
-                        <button
-                          className="text-[11px] text-muted hover:text-danger"
-                          onClick={() => handleDelete(t)}
-                        >
-                          Apagar
-                        </button>
-                      </div>
-                    </div>
-                    {open ? (
-                      <div className="mt-3">
-                        <p className="mb-2 text-xs font-medium text-muted">Categoria</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {cats.map((c) => (
-                            <button
-                              key={c.id}
-                              onClick={() => update(t.id, { category: c.id })}
-                              className={cn(
-                                "h-9 rounded-full px-3 text-xs font-medium",
-                                t.category === c.id ? "bg-primary text-primary-fg" : "bg-line text-fg",
-                              )}
-                            >
-                              {c.label}
-                            </button>
-                          ))}
+                  <li key={t.id} className={i > 0 ? "border-t border-line" : ""}>
+                    <SwipeRow onDelete={() => handleDelete(t)}>
+                      <div className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          {person ? <PersonAvatar person={person} size="sm" /> : null}
+                          <button
+                            className="min-w-0 flex-1 text-left"
+                            onClick={() => setOpenId(open ? null : t.id)}
+                          >
+                            <p className="truncate text-sm font-medium">{t.merchant}</p>
+                            <p className="text-xs text-muted">
+                              {categoryLabel(t.category, custom)}
+                              {t.installmentIndex
+                                ? ` · ${t.installmentIndex}/${t.installmentTotal}`
+                                : ""}
+                              {scheduled ? " · agendado" : ""}
+                            </p>
+                          </button>
+                          <p
+                            className={cn(
+                              "font-display text-sm tabular-nums",
+                              t.type === "income" ? "text-income" : "text-fg",
+                              scheduled && "text-muted",
+                            )}
+                          >
+                            {t.type === "income" ? "+" : "−"}
+                            {formatBRL(t.amount)}
+                          </p>
                         </div>
-                        <p className="mt-3 mb-2 text-xs font-medium text-muted">Quem</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {state.people.map((p) => (
-                            <button
-                              key={p.id}
-                              onClick={() => update(t.id, { personId: p.id })}
-                              className={cn(
-                                "inline-flex h-9 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium",
-                                t.personId === p.id ? "bg-primary text-primary-fg" : "bg-line text-fg",
-                              )}
-                            >
-                              <PersonAvatar person={p} size="sm" />
-                              {p.name}
-                            </button>
-                          ))}
-                        </div>
+                        {open ? (
+                          <div className="mt-3">
+                            <p className="mb-2 text-xs font-medium text-muted">Categoria</p>
+                            <CategoryPicker
+                              value={t.category}
+                              group={t.type === "income" ? "entrada" : "gasto"}
+                              onChange={(id) => update(t.id, { category: id })}
+                            />
+                            <p className="mt-3 mb-2 text-xs font-medium text-muted">Quem</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {state.people.map((p) => (
+                                <button
+                                  key={p.id}
+                                  onClick={() => update(t.id, { personId: p.id })}
+                                  className={cn(
+                                    "inline-flex h-9 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium",
+                                    t.personId === p.id
+                                      ? "bg-primary text-primary-fg"
+                                      : "bg-line text-fg",
+                                  )}
+                                >
+                                  <PersonAvatar person={p} size="sm" />
+                                  {p.name}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
-                    ) : null}
+                    </SwipeRow>
                   </li>
                 );
               })}

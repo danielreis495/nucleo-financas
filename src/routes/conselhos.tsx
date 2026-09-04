@@ -36,7 +36,7 @@ function ConselhosPage() {
         spent: p.amount,
       }));
       const categories = budgetUsage(state, month).map((b) => ({
-        label: categoryLabel(b.category),
+        label: categoryLabel(b.category, state.customCategories),
         used: b.used,
         limit: b.monthlyLimit,
       }));
@@ -151,7 +151,7 @@ function ConselhosPage() {
               </div>
               <p className="mt-2 text-sm leading-relaxed text-muted">{item.body}</p>
               <div className="mt-3 flex items-center justify-between text-xs">
-                <span className="text-muted">{item.category ? categoryLabel(item.category) : "Geral"}</span>
+                <span className="text-muted">{item.category ? categoryLabel(item.category, state.customCategories) : "Geral"}</span>
                 {item.impact > 0 ? (
                   <span className="font-medium text-primary tabular-nums">−{formatBRL(item.impact)}/mês</span>
                 ) : null}

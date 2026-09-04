@@ -201,6 +201,7 @@ export function createSeedState(): FinanceState {
     transactions: [...posted, ...installmentTx],
     plans,
     budgets: DEFAULT_BUDGETS as CategoryBudget[],
+    customCategories: [],
     advice: null,
     demo: true,
   };

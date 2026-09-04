@@ -3,10 +3,10 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Camera, FileSpreadsheet, FileText, ImageIcon, Keyboard, Loader2 } from "lucide-react";
 import { CaptureReview } from "@/components/capture-review";
+import { CategoryPicker } from "@/components/category-picker";
 import { PersonAvatar } from "@/components/person-avatar";
 import { Button } from "@/components/ui/button";
 import { extractDocument } from "@/lib/ai";
-import { EXPENSE_CATEGORIES } from "@/lib/categories";
 import { formatBRL } from "@/lib/money";
 import { useFinanceStore } from "@/lib/store";
 import type { CategoryId, ExtractedItem, TxSource } from "@/lib/types";
@@ -128,20 +128,7 @@ function CapturaPage() {
         <p className="mt-6 font-display text-5xl tabular-nums tracking-tight">{formatBRL(amount)}</p>
 
         <p className="mt-6 mb-2 text-xs font-medium text-muted">Categoria</p>
-        <div className="flex flex-wrap gap-1.5">
-          {EXPENSE_CATEGORIES.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setCategory(c.id)}
-              className={cn(
-                "h-9 rounded-full px-3 text-xs font-medium",
-                category === c.id ? "bg-primary text-primary-fg" : "bg-line",
-              )}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
+        <CategoryPicker value={category} group="gasto" onChange={setCategory} />
 
         <p className="mt-4 mb-2 text-xs font-medium text-muted">Quem</p>
         <div className="flex flex-wrap gap-1.5">

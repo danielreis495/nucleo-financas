@@ -3,7 +3,9 @@ import { persist } from "zustand/middleware";
 import type {
   AdviceCache,
   CategoryBudget,
+  CategoryGroup,
   CategoryId,
+  CustomCategory,
   ExtractedItem,
   FinanceState,
   InstallmentKind,
@@ -13,6 +15,7 @@ import type {
   Transaction,
   TxSource,
 } from "./types";
+import { CATEGORIES } from "./categories";
 import { createSeedState } from "./seed";
 import { uid, isoDate, todayIso, monthKey } from "./utils";
 
@@ -36,6 +39,7 @@ type FinanceActions = {
   updateTransaction: (id: string, patch: Partial<Transaction>) => void;
   removeTransaction: (id: string) => void;
   restoreTransaction: (tx: Transaction) => void;
+  addCustomCategory: (input: { label: string; group: CategoryGroup }) => string;
   setBudget: (category: CategoryId, monthlyLimit: number) => void;
   importExtracted: (items: ExtractedItem[], source: TxSource) => void;
   addInstallmentPlan: (input: {
@@ -65,6 +69,7 @@ const emptyState = (): FinanceState => ({
   transactions: [],
   plans: [],
   budgets: [],
+  customCategories: [],
   advice: null,
   demo: false,
 });
@@ -128,6 +133,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           hydrated: true,
           viewMonth: monthKey(new Date()),
           geminiKey: get().geminiKey,
+          customCategories: get().customCategories,
         }),
       clearAll: () =>
         set({
@@ -135,6 +141,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           hydrated: true,
           viewMonth: monthKey(new Date()),
           geminiKey: get().geminiKey,
+          customCategories: get().customCategories,
         }),
       setHouseholdName: (householdName) => set({ householdName }),
       addPerson: ({ name, role, color }) =>
@@ -188,6 +195,24 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
       restoreTransaction: (tx) => {
         if (get().transactions.some((t) => t.id === tx.id)) return;
         set({ transactions: [tx, ...get().transactions] });
+      },
+      addCustomCategory: ({ label, group }) => {
+        const trimmed = label.trim();
+        if (!trimmed) return "outros";
+        const pool = [...CATEGORIES, ...(get().customCategories ?? [])];
+        const existing = pool.find((c) => c.label.toLowerCase() === trimmed.toLowerCase());
+        if (existing) return existing.id;
+        let id = trimmed
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "")
+          .slice(0, 32);
+        if (!id || pool.some((c) => c.id === id)) id = `c-${uid().slice(0, 8)}`;
+        const next: CustomCategory = { id, label: trimmed, group };
+        set({ customCategories: [...(get().customCategories ?? []), next] });
+        return id;
       },
       setBudget: (category, monthlyLimit) => {
         const budgets = get().budgets;
@@ -300,6 +325,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         transactions: s.transactions,
         plans: s.plans,
         budgets: s.budgets,
+        customCategories: s.customCategories,
         advice: s.advice,
         demo: s.demo,
         geminiKey: s.geminiKey,

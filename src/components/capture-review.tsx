@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Check, Layers } from "lucide-react";
 import type { ExtractedItem } from "@/lib/types";
-import { CATEGORIES, categoryLabel } from "@/lib/categories";
+import { categoryLabel } from "@/lib/categories";
 import { formatBRL, formatShortDate } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { useFinanceStore } from "@/lib/store";
 import { PersonAvatar } from "./person-avatar";
+import { CategoryPicker } from "./category-picker";
 import { Button } from "./ui/button";
 
 export function CaptureReview({
@@ -20,6 +21,7 @@ export function CaptureReview({
   onCancel: () => void;
 }) {
   const people = useFinanceStore((s) => s.people);
+  const custom = useFinanceStore((s) => s.customCategories);
   const selectedCount = items.filter((i) => i.selected).length;
   const total = items.filter((i) => i.selected).reduce((a, i) => a + i.amount, 0);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -79,7 +81,7 @@ export function CaptureReview({
                   </p>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <span className="rounded-full bg-primary-soft px-2.5 py-1 text-xs font-medium text-primary">
-                      {categoryLabel(item.category)}
+                      {categoryLabel(item.category, custom)}
                     </span>
                     {person ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-line px-2 py-1 text-xs font-medium">
@@ -100,22 +102,11 @@ export function CaptureReview({
               {open ? (
                 <div className="mt-3 border-t border-line pt-3">
                   <p className="mb-2 text-xs font-medium text-muted">Categoria</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {CATEGORIES.filter((c) => (item.type === "income" ? c.id === "salario" : c.group === "gasto")).map(
-                      (c) => (
-                        <button
-                          key={c.id}
-                          onClick={() => patch(item.id, { category: c.id })}
-                          className={cn(
-                            "h-9 rounded-full px-3 text-xs font-medium",
-                            item.category === c.id ? "bg-primary text-primary-fg" : "bg-line text-fg",
-                          )}
-                        >
-                          {c.label}
-                        </button>
-                      ),
-                    )}
-                  </div>
+                  <CategoryPicker
+                    value={item.category}
+                    group={item.type === "income" ? "entrada" : "gasto"}
+                    onChange={(id) => patch(item.id, { category: id })}
+                  />
                   <p className="mt-3 mb-2 text-xs font-medium text-muted">Quem</p>
                   <div className="flex flex-wrap gap-1.5">
                     {people.map((p) => (

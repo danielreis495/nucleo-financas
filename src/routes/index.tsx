@@ -112,7 +112,7 @@ function Home() {
             return (
               <li key={c.category}>
                 <div className="mb-1 flex items-baseline justify-between text-sm">
-                  <span className="font-medium">{categoryLabel(c.category)}</span>
+                  <span className="font-medium">{categoryLabel(c.category, state.customCategories)}</span>
                   <span className={cn("tabular-nums", over ? "text-danger" : "text-muted")}>
                     {formatBRL(c.amount)}
                     {budget ? ` / ${formatBRLCompact(budget.monthlyLimit)}` : ""}
@@ -194,7 +194,7 @@ function Home() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{t.merchant}</p>
                   <p className="text-xs text-muted">
-                    {categoryLabel(t.category)} · {formatShortDate(t.date)}
+                    {categoryLabel(t.category, state.customCategories)} · {formatShortDate(t.date)}
                   </p>
                 </div>
                 <p className="font-display tabular-nums">−{formatBRL(t.amount)}</p>

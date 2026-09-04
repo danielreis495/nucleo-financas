@@ -1,9 +1,9 @@
-import type { CategoryId } from "./types";
+import type { CategoryGroup, CategoryId, CustomCategory } from "./types";
 
 export const CATEGORIES: {
   id: CategoryId;
   label: string;
-  group: "gasto" | "entrada";
+  group: CategoryGroup;
 }[] = [
   { id: "mercado", label: "Mercado", group: "gasto" },
   { id: "alimentacao", label: "Alimentação", group: "gasto" },
@@ -23,8 +23,16 @@ export const CATEGORIES: {
 
 export const EXPENSE_CATEGORIES = CATEGORIES.filter((c) => c.group === "gasto");
 
-export function categoryLabel(id: CategoryId) {
-  return CATEGORIES.find((c) => c.id === id)?.label ?? id;
+export function allCategories(custom: CustomCategory[] = []) {
+  return [...CATEGORIES, ...(custom ?? [])];
+}
+
+export function categoriesFor(group: CategoryGroup, custom: CustomCategory[] = []) {
+  return allCategories(custom).filter((c) => c.group === group);
+}
+
+export function categoryLabel(id: CategoryId, custom: CustomCategory[] = []) {
+  return allCategories(custom).find((c) => c.id === id)?.label ?? id;
 }
 
 export const DEFAULT_BUDGETS: { category: CategoryId; monthlyLimit: number }[] = [

@@ -10,21 +10,15 @@ export type Person = {
   monthlyBudget: number | null;
 };
 
-export type CategoryId =
-  | "alimentacao"
-  | "mercado"
-  | "transporte"
-  | "moradia"
-  | "saude"
-  | "educacao"
-  | "lazer"
-  | "assinaturas"
-  | "vestuario"
-  | "pets"
-  | "viagem"
-  | "contas"
-  | "salario"
-  | "outros";
+export type CategoryId = string;
+
+export type CategoryGroup = "gasto" | "entrada";
+
+export type CustomCategory = {
+  id: string;
+  label: string;
+  group: CategoryGroup;
+};
 
 export type TxType = "expense" | "income";
 export type TxStatus = "posted" | "scheduled";
@@ -111,6 +105,7 @@ export type FinanceState = {
   transactions: Transaction[];
   plans: InstallmentPlan[];
   budgets: CategoryBudget[];
+  customCategories: CustomCategory[];
   advice: AdviceCache | null;
   demo: boolean;
 };

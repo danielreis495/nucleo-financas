@@ -2,9 +2,10 @@ import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { CreditCard, Landmark } from "lucide-react";
+import { CategoryPicker } from "@/components/category-picker";
 import { PersonAvatar } from "@/components/person-avatar";
 import { Button } from "@/components/ui/button";
-import { categoryLabel, EXPENSE_CATEGORIES } from "@/lib/categories";
+import { categoryLabel } from "@/lib/categories";
 import { formatBRL, formatLongDate } from "@/lib/money";
 import { committedFuture, planProgress } from "@/lib/selectors";
 import { useFinanceStore } from "@/lib/store";
@@ -66,7 +67,7 @@ function ParcelasPage() {
                 </div>
                 <div className="mt-3 flex items-baseline justify-between text-sm">
                   <span className="text-muted">
-                    {progress.paid}/{progress.total} · {categoryLabel(plan.category)}
+                    {progress.paid}/{progress.total} · {categoryLabel(plan.category, state.customCategories)}
                   </span>
                   <span className="font-display tabular-nums">{formatBRL(plan.installmentAmount)}</span>
                 </div>
@@ -209,20 +210,8 @@ function NewPlanForm({
       </div>
 
       <p className="text-xs font-medium text-muted">Categoria</p>
-      <div className="mt-1 mb-3 flex flex-wrap gap-1.5">
-        {EXPENSE_CATEGORIES.map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            onClick={() => setCategory(c.id)}
-            className={cn(
-              "h-9 rounded-full px-3 text-xs font-medium",
-              category === c.id ? "bg-primary text-primary-fg" : "bg-line",
-            )}
-          >
-            {c.label}
-          </button>
-        ))}
+      <div className="mt-1 mb-3">
+        <CategoryPicker value={category} group="gasto" onChange={setCategory} />
       </div>
 
       <p className="text-xs font-medium text-muted">Quem</p>
