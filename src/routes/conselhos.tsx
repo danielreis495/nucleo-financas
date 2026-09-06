@@ -55,7 +55,7 @@ function ConselhosPage() {
   const [busy, setBusy] = useState(false);
   const cached = state.advice?.monthKey === month ? state.advice : null;
   const snapshot = financialSnapshot(state, month);
-  const rows = monthTransactions(state, month);
+  const rows = monthTransactions(state, month).filter((t) => !t.transferId);
   const topCategory = spendByCategory(rows)[0] ?? null;
   const futureCommitted = committedFuture(state, todayIso());
 

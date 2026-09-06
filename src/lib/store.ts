@@ -18,6 +18,7 @@ import type {
   TxSource,
 } from "./types";
 import { CATEGORIES } from "./categories";
+import { findTransferCandidate } from "./integrity";
 import { createSeedState } from "./seed";
 import { uid, isoDate, todayIso, monthKey } from "./utils";
 
@@ -48,6 +49,7 @@ type FinanceActions = {
     accountId?: string | null;
   }) => void;
   updateTransaction: (id: string, patch: Partial<Transaction>) => void;
+  setTransactionTransfer: (id: string, otherAccountId: string | null) => void;
   removeTransaction: (id: string) => void;
   restoreTransaction: (tx: Transaction) => void;
   addCustomCategory: (input: { label: string; group: CategoryGroup }) => string;
@@ -129,6 +131,34 @@ function expandNewPlan(input: {
     });
   }
   return rows;
+}
+
+function clearTransferLink(transactions: Transaction[], transactionId: string) {
+  const tx = transactions.find((row) => row.id === transactionId);
+  if (!tx?.transferId) return transactions;
+  const transferId = tx.transferId;
+  const generated = transactions.find((row) => row.transferId === transferId && row.transferGenerated);
+  return transactions
+    .filter((row) => !generated || row.id !== generated.id)
+    .map((row) =>
+      row.transferId === transferId
+        ? { ...row, transferId: null, transferAccountId: null, transferGenerated: false }
+        : row,
+    );
+}
+
+function removeTransactionWithTransfer(transactions: Transaction[], transactionId: string) {
+  const tx = transactions.find((row) => row.id === transactionId);
+  if (!tx?.transferId) return transactions.filter((row) => row.id !== transactionId);
+  const transferId = tx.transferId;
+  const generated = transactions.find((row) => row.transferId === transferId && row.transferGenerated);
+  return transactions
+    .filter((row) => row.id !== transactionId && (!generated || row.id !== generated.id))
+    .map((row) =>
+      row.transferId === transferId
+        ? { ...row, transferId: null, transferAccountId: null, transferGenerated: false }
+        : row,
+    );
 }
 
 export const useFinanceStore = create<FinanceState & FinanceActions>()(
@@ -225,15 +255,104 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         };
         set({ transactions: [t, ...get().transactions], demo: false });
       },
-      updateTransaction: (id, patch) =>
+      updateTransaction: (id, patch) => {
+        const current = get().transactions.find((t) => t.id === id);
+        if (!current?.transferId) {
+          set({ transactions: get().transactions.map((t) => (t.id === id ? { ...t, ...patch } : t)) });
+          return;
+        }
+        const pairPatch: Partial<Transaction> = {};
+        if (patch.amount !== undefined) pairPatch.amount = patch.amount;
+        if (patch.date !== undefined) pairPatch.date = patch.date;
+        if (patch.status !== undefined) pairPatch.status = patch.status;
+        if (patch.personId !== undefined) pairPatch.personId = patch.personId;
         set({
-          transactions: get().transactions.map((t) => (t.id === id ? { ...t, ...patch } : t)),
-        }),
+          transactions: get().transactions.map((t) => {
+            if (t.id === id) return { ...t, ...patch };
+            if (t.transferId === current.transferId) return { ...t, ...pairPatch };
+            return t;
+          }),
+        });
+      },
+      setTransactionTransfer: (id, otherAccountId) => {
+        const all = get().transactions;
+        const current = all.find((t) => t.id === id);
+        if (!current) return;
+
+        if (!otherAccountId) {
+          set({ transactions: clearTransferLink(all, id) });
+          return;
+        }
+        if (!current.accountId || current.accountId === otherAccountId) return;
+
+        const clean = current.transferId ? clearTransferLink(all, id) : all;
+        const base = clean.find((t) => t.id === id);
+        if (!base?.accountId) return;
+
+        const transferId = uid();
+        const candidate = findTransferCandidate(base, clean, otherAccountId);
+        const sourceAccount = get().accounts.find((a) => a.id === base.accountId);
+        const targetAccount = get().accounts.find((a) => a.id === otherAccountId);
+
+        let transactions = clean.map((t) => {
+          if (t.id === base.id) {
+            return {
+              ...t,
+              transferId,
+              transferAccountId: otherAccountId,
+              transferGenerated: false,
+            };
+          }
+          if (candidate && t.id === candidate.id) {
+            return {
+              ...t,
+              transferId,
+              transferAccountId: base.accountId,
+              transferGenerated: false,
+            };
+          }
+          return t;
+        });
+
+        if (!candidate) {
+          const counterpartType = base.type === "expense" ? "income" : "expense";
+          const counterpart: Transaction = {
+            id: uid(),
+            date: base.date,
+            description: `Transferência ${sourceAccount?.name ?? "conta"} → ${targetAccount?.name ?? "conta"}`,
+            merchant: "Transferência entre contas",
+            amount: base.amount,
+            type: counterpartType,
+            status: base.status,
+            category: counterpartType === "income" ? "salario" : "outros",
+            personId: base.personId,
+            accountId: otherAccountId,
+            transferId,
+            transferAccountId: base.accountId,
+            transferGenerated: true,
+            split: null,
+            installmentId: null,
+            installmentIndex: null,
+            installmentTotal: null,
+            source: "manual",
+            createdAt: new Date().toISOString(),
+          };
+          transactions = [counterpart, ...transactions];
+        }
+
+        set({ transactions, demo: false });
+      },
       removeTransaction: (id) =>
-        set({ transactions: get().transactions.filter((t) => t.id !== id) }),
+        set({ transactions: removeTransactionWithTransfer(get().transactions, id) }),
       restoreTransaction: (tx) => {
         if (get().transactions.some((t) => t.id === tx.id)) return;
-        set({ transactions: [tx, ...get().transactions] });
+        const restored = {
+          ...tx,
+          transferId: null,
+          transferAccountId: null,
+          transferGenerated: false,
+        };
+        set({ transactions: [restored, ...get().transactions] });
       },
       addCustomCategory: ({ label, group }) => {
         const trimmed = label.trim();

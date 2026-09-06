@@ -53,6 +53,9 @@ export type Transaction = {
   category: CategoryId;
   personId: string;
   accountId?: string | null;
+  transferId?: string | null;
+  transferAccountId?: string | null;
+  transferGenerated?: boolean;
   split: SplitShare[] | null;
   installmentId: string | null;
   installmentIndex: number | null;
