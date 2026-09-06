@@ -115,7 +115,7 @@ export type ExtractedItem = {
 export type FinanceState = {
   householdName: string;
   people: Person[];
-  accounts: Account[];
+  accounts?: Account[];
   transactions: Transaction[];
   plans: InstallmentPlan[];
   budgets: CategoryBudget[];
