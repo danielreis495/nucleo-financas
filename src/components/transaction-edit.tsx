@@ -7,17 +7,11 @@ import { useFinanceStore } from "@/lib/store";
 import type { Transaction, TxType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export function TransactionEdit({
-  tx,
-  onClose,
-}: {
-  tx: Transaction;
-  onClose: () => void;
-}) {
+export function TransactionEdit({ tx, onClose }: { tx: Transaction; onClose: () => void }) {
   const update = useFinanceStore((s) => s.updateTransaction);
   const people = useFinanceStore((s) => s.people);
+  const accounts = useFinanceStore((s) => s.accounts ?? []);
   const live = useFinanceStore((s) => s.transactions.find((t) => t.id === tx.id)) ?? tx;
-
   const [merchant, setMerchant] = useState(live.merchant);
   const [description, setDescription] = useState(live.description);
   const [date, setDate] = useState(live.date);
@@ -49,114 +43,50 @@ export function TransactionEdit({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
-      <button
-        className="absolute inset-0 bg-ink/40"
-        aria-label="Fechar"
-        onClick={() => {
-          saveCore();
-          onClose();
-        }}
-      />
+      <button className="absolute inset-0 bg-ink/40" aria-label="Fechar" onClick={() => { saveCore(); onClose(); }} />
       <div className="relative z-10 flex max-h-[88dvh] w-full max-w-[430px] flex-col rounded-t-2xl bg-elevated pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[var(--shadow-border)]">
         <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-line" />
         <div className="overflow-y-auto px-5 pt-4">
           <p className="text-xs font-medium tracking-wide text-muted uppercase">Editar lançamento</p>
           <p className="mt-1 font-display text-2xl tabular-nums">{formatBRL(live.amount)}</p>
-
           <div className="mt-4 grid grid-cols-2 gap-1.5">
-            <button
-              type="button"
-              onClick={() => setType("expense")}
-              className={cn(
-                "h-9 rounded-full text-xs font-medium",
-                live.type === "expense" ? "bg-primary text-primary-fg" : "bg-line",
-              )}
-            >
-              Gasto
-            </button>
-            <button
-              type="button"
-              onClick={() => setType("income")}
-              className={cn(
-                "h-9 rounded-full text-xs font-medium",
-                live.type === "income" ? "bg-primary text-primary-fg" : "bg-line",
-              )}
-            >
-              Entrada
-            </button>
+            <button type="button" onClick={() => setType("expense")} className={cn("h-9 rounded-full text-xs font-medium", live.type === "expense" ? "bg-primary text-primary-fg" : "bg-line")}>Gasto</button>
+            <button type="button" onClick={() => setType("income")} className={cn("h-9 rounded-full text-xs font-medium", live.type === "income" ? "bg-primary text-primary-fg" : "bg-line")}>Entrada</button>
           </div>
-
           <label className="mt-4 block text-xs font-medium text-muted">Nome / loja</label>
-          <input
-            value={merchant}
-            onChange={(e) => setMerchant(e.target.value)}
-            className="mt-1 h-11 w-full rounded-md bg-surface px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
-          />
-
+          <input value={merchant} onChange={(e) => setMerchant(e.target.value)} className="mt-1 h-11 w-full rounded-md bg-surface px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary" />
           <label className="mt-3 block text-xs font-medium text-muted">Detalhe</label>
-          <input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="mt-1 h-11 w-full rounded-md bg-surface px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
-          />
-
+          <input value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1 h-11 w-full rounded-md bg-surface px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary" />
           <div className="mt-3 grid grid-cols-2 gap-2">
             <div>
               <label className="block text-xs font-medium text-muted">Valor</label>
-              <input
-                inputMode="decimal"
-                value={amountText}
-                onChange={(e) => setAmountText(e.target.value)}
-                className="mt-1 h-11 w-full rounded-md bg-surface px-3 text-sm tabular-nums shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
-              />
+              <input inputMode="decimal" value={amountText} onChange={(e) => setAmountText(e.target.value)} className="mt-1 h-11 w-full rounded-md bg-surface px-3 text-sm tabular-nums shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary" />
             </div>
             <div>
               <label className="block text-xs font-medium text-muted">Data</label>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="mt-1 h-11 w-full rounded-md bg-surface px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
-              />
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 h-11 w-full rounded-md bg-surface px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary" />
             </div>
           </div>
-
           <p className="mt-4 mb-2 text-xs font-medium text-muted">Categoria</p>
-          <CategoryPicker
-            value={live.category}
-            group={live.type === "income" ? "entrada" : "gasto"}
-            onChange={(id) => update(live.id, { category: id })}
-          />
-
+          <CategoryPicker value={live.category} group={live.type === "income" ? "entrada" : "gasto"} onChange={(id) => update(live.id, { category: id })} />
+          <p className="mt-4 mb-2 text-xs font-medium text-muted">Conta</p>
+          <div className="mb-1 flex flex-wrap gap-1.5">
+            <button type="button" onClick={() => update(live.id, { accountId: null })} className={cn("h-9 rounded-full px-3 text-xs font-medium", !live.accountId ? "bg-primary text-primary-fg" : "bg-line text-fg")}>Sem conta</button>
+            {accounts.filter((a) => a.active || a.id === live.accountId).map((account) => (
+              <button key={account.id} type="button" onClick={() => update(live.id, { accountId: account.id })} className={cn("h-9 max-w-full truncate rounded-full px-3 text-xs font-medium", live.accountId === account.id ? "bg-primary text-primary-fg" : "bg-line text-fg")}>{account.name}</button>
+            ))}
+          </div>
+          <p className="mb-4 text-xs text-muted">{accounts.length === 0 ? "Cadastre uma conta em Casa para vinculá-la aos lançamentos." : "Lançamentos antigos continuam sem conta até você escolher uma."}</p>
           <p className="mt-4 mb-2 text-xs font-medium text-muted">Quem</p>
           <div className="mb-4 flex flex-wrap gap-1.5">
             {people.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => update(live.id, { personId: p.id })}
-                className={cn(
-                  "inline-flex h-9 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium",
-                  live.personId === p.id ? "bg-primary text-primary-fg" : "bg-line text-fg",
-                )}
-              >
-                <PersonAvatar person={p} size="sm" />
-                {p.name}
+              <button key={p.id} type="button" onClick={() => update(live.id, { personId: p.id })} className={cn("inline-flex h-9 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium", live.personId === p.id ? "bg-primary text-primary-fg" : "bg-line text-fg")}>
+                <PersonAvatar person={p} size="sm" />{p.name}
               </button>
             ))}
           </div>
         </div>
-        <div className="px-5 pt-1">
-          <Button
-            className="w-full"
-            onClick={() => {
-              saveCore();
-              onClose();
-            }}
-          >
-            Pronto
-          </Button>
-        </div>
+        <div className="px-5 pt-1"><Button className="w-full" onClick={() => { saveCore(); onClose(); }}>Pronto</Button></div>
       </div>
     </div>
   );
