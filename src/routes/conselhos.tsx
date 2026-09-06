@@ -1,22 +1,52 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, ShieldCheck, Sparkles, Target, WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { adviseSpending } from "@/lib/ai";
 import { categoryLabel } from "@/lib/categories";
 import { formatBRL, formatMonthTitle } from "@/lib/money";
 import {
   budgetUsage,
+  committedFuture,
+  financialSnapshot,
   monthTransactions,
   planProgress,
+  spendByCategory,
   spendByPerson,
   totalsForMonth,
+  type FinancialSnapshot,
 } from "@/lib/selectors";
 import { useFinanceStore } from "@/lib/store";
-import { addMonthsKey, cn } from "@/lib/utils";
+import { addMonthsKey, cn, todayIso } from "@/lib/utils";
 
 export const Route = createFileRoute("/conselhos")({ component: ConselhosPage });
+
+function diagnosis(snapshot: FinancialSnapshot) {
+  if (snapshot.income <= 0) {
+    return "Ainda não tenho uma entrada de renda registrada neste mês. Capture seu holerite ou extrato para eu montar um diagnóstico confiável.";
+  }
+  if (snapshot.margin < 0) {
+    return `As saídas previstas já ultrapassam sua renda em ${formatBRL(Math.abs(snapshot.margin))}. A prioridade agora é voltar ao positivo antes de criar novas metas.`;
+  }
+  if (snapshot.spendRatio > 0.9) {
+    return `Quase toda a sua renda já está comprometida. Sua margem prevista é de ${formatBRL(snapshot.margin)}, então qualquer gasto novo precisa ser bem escolhido.`;
+  }
+  if (snapshot.installmentRatio > 0.2) {
+    return `Seu mês ainda fecha positivo, mas as parcelas estão ocupando ${(snapshot.installmentRatio * 100).toFixed(0)}% da renda registrada. Vale proteger sua margem antes de assumir novas prestações.`;
+  }
+  if (snapshot.margin / snapshot.income >= 0.2) {
+    return `Seu orçamento tem uma margem saudável de ${formatBRL(snapshot.margin)}. O próximo passo é transformar parte dessa sobra em reserva, sem apertar o mês.`;
+  }
+  return `Seu orçamento está equilibrado, com margem prevista de ${formatBRL(snapshot.margin)}. O foco agora é manter o ritmo e evitar que gastos variáveis consumam essa sobra.`;
+}
+
+function healthLabel(status: FinancialSnapshot["status"]) {
+  if (status === "Saudavel") return "Saudável";
+  if (status === "Atencao") return "Atenção";
+  if (status === "Critica") return "Crítica";
+  return status;
+}
 
 function ConselhosPage() {
   const state = useFinanceStore();
@@ -24,11 +54,62 @@ function ConselhosPage() {
   const setAdvice = useFinanceStore((s) => s.setAdvice);
   const [busy, setBusy] = useState(false);
   const cached = state.advice?.monthKey === month ? state.advice : null;
+  const snapshot = financialSnapshot(state, month);
+  const rows = monthTransactions(state, month);
+  const topCategory = spendByCategory(rows)[0] ?? null;
+  const futureCommitted = committedFuture(state, todayIso());
+
+  const priorities: string[] = [];
+  if (snapshot.income <= 0) {
+    priorities.push("Registrar a renda do mês para liberar um diagnóstico completo.");
+    priorities.push("Vincular os próximos lançamentos às contas corretas.");
+    priorities.push("Manter gastos e parcelas atualizados para o Núcleo aprender seu padrão.");
+  } else {
+    if (snapshot.margin < 0) {
+      priorities.push(`Reduzir pelo menos ${formatBRL(snapshot.recoveryTarget)} para voltar ao positivo com uma pequena margem.`);
+    } else {
+      priorities.push(`Proteger a margem prevista de ${formatBRL(snapshot.margin)} até o fechamento do mês.`);
+    }
+    if (snapshot.installmentExpense > 0) {
+      priorities.push(
+        snapshot.installmentRatio >= 0.2
+          ? `Evitar novas parcelas: as atuais já representam ${(snapshot.installmentRatio * 100).toFixed(0)}% da renda do mês.`
+          : `Acompanhar ${formatBRL(snapshot.installmentExpense)} em parcelas neste mês antes de assumir novas prestações.`,
+      );
+    } else {
+      priorities.push("Evitar criar novas parcelas sem antes simular o impacto no orçamento.");
+    }
+    if (topCategory) {
+      priorities.push(`Revisar ${categoryLabel(topCategory.category, state.customCategories)}, hoje sua maior categoria de gasto em ${formatBRL(topCategory.amount)}.`);
+    } else {
+      priorities.push("Continuar registrando os gastos para identificar onde existe espaço real de ajuste.");
+    }
+  }
+
+  const goal =
+    snapshot.income <= 0
+      ? {
+          title: "Completar o Raio-X",
+          body: "Registre ao menos uma entrada de renda neste mês. O holerite pode ser enviado pela Captura.",
+        }
+      : snapshot.margin < 0
+        ? {
+            title: `Recuperar ${formatBRL(snapshot.recoveryTarget)}`,
+            body: "Essa é a redução estimada para sair do negativo e terminar o mês com uma pequena margem de segurança.",
+          }
+        : snapshot.suggestedSavings > 0
+          ? {
+              title: `Guardar ${formatBRL(snapshot.suggestedSavings)} neste mês`,
+              body: "Meta inicial calculada pela sua margem atual. Ela é propositalmente menor que a sobra para não apertar seu caixa.",
+            }
+          : {
+              title: "Fechar o mês no azul",
+              body: "Por enquanto, preservar a margem atual é mais importante do que forçar uma meta de investimento.",
+            };
 
   async function run() {
     setBusy(true);
     try {
-      const rows = monthTransactions(state, month);
       const prev = totalsForMonth(state, addMonthsKey(month, -1));
       const totals = totalsForMonth(state, month);
       const people = spendByPerson(rows, state.people).map((p) => ({
@@ -102,70 +183,151 @@ function ConselhosPage() {
     }
   }
 
-  const potential = cached?.items.reduce((a, i) => a + i.impact, 0) ?? 0;
-
   return (
     <main className="flex flex-col px-5 pt-6 pb-8">
-      <p className="text-xs font-medium tracking-wide text-muted uppercase">Conselhos</p>
-      <h1 className="font-display text-3xl tracking-tight">{formatMonthTitle(month)}</h1>
+      <p className="text-xs font-medium tracking-wide text-muted uppercase">Consultor financeiro</p>
+      <h1 className="font-display text-3xl tracking-tight">Raio-X de {formatMonthTitle(month)}</h1>
       <p className="mt-2 text-sm leading-relaxed text-muted">
-        Uma leitura fria dos gastos da casa: assinaturas, delivery, teto estourado e o peso das parcelas.
+        Primeiro os números. Depois a orientação. O diagnóstico abaixo é calculado pelo Núcleo a partir dos seus lançamentos.
       </p>
 
-      <Button className="mt-5" onClick={() => void run()} disabled={busy}>
-        {busy ? (
-          <>
-            <Loader2 className="size-4 animate-spin" />
-            Analisando…
-          </>
-        ) : cached ? (
-          "Atualizar leitura"
-        ) : (
-          "Analisar gastos"
-        )}
-      </Button>
-
-      {cached ? (
-        <div className="stagger-in mt-6 flex flex-col gap-3">
-          <section className="rounded-xl bg-primary px-5 py-4 text-primary-fg">
-            <p className="text-xs text-primary-fg/70">Corte estimado no mês</p>
-            <p className="font-display text-3xl tabular-nums">{formatBRL(potential)}</p>
-            <p className="mt-2 text-sm leading-relaxed text-primary-fg/85">{cached.summary}</p>
-          </section>
-          {cached.items.map((item) => (
-            <article key={item.id} className="rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
-              <div className="flex items-start justify-between gap-3">
-                <h2 className="font-medium">{item.title}</h2>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                    item.severity === "high"
-                      ? "bg-danger-soft text-danger"
-                      : item.severity === "medium"
-                        ? "bg-warn-soft text-warn"
-                        : "bg-primary-soft text-primary",
-                  )}
-                >
-                  {item.severity === "high" ? "Alto" : item.severity === "medium" ? "Médio" : "Leve"}
-                </span>
-              </div>
-              <p className="mt-2 text-sm leading-relaxed text-muted">{item.body}</p>
-              <div className="mt-3 flex items-center justify-between text-xs">
-                <span className="text-muted">{item.category ? categoryLabel(item.category, state.customCategories) : "Geral"}</span>
-                {item.impact > 0 ? (
-                  <span className="font-medium text-primary tabular-nums">−{formatBRL(item.impact)}/mês</span>
-                ) : null}
-              </div>
-            </article>
-          ))}
+      <section className="mt-5 rounded-xl bg-primary px-5 py-5 text-primary-fg">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-medium tracking-wide text-primary-fg/70 uppercase">Saúde financeira</p>
+            <p className="mt-1 font-display text-4xl tabular-nums">
+              {snapshot.score === null ? "—" : `${snapshot.score}/100`}
+            </p>
+          </div>
+          <span className="rounded-full bg-primary-fg/10 px-3 py-1 text-xs font-medium">
+            {healthLabel(snapshot.status)}
+          </span>
         </div>
-      ) : (
-        !busy && (
-          <p className="mt-8 text-sm text-muted">
-            Nada ainda. A análise usa os lançamentos deste mês — capture uma fatura ou use a casa de exemplo.
+        <p className="mt-3 text-sm leading-relaxed text-primary-fg/85">{diagnosis(snapshot)}</p>
+      </section>
+
+      <section className="mt-5">
+        <h2 className="font-display text-xl">Seu dinheiro</h2>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <Metric label="Entradas" value={formatBRL(snapshot.income)} />
+          <Metric label="Saídas realizadas" value={formatBRL(snapshot.postedExpense)} />
+          <Metric label="Essenciais" value={formatBRL(snapshot.essentialExpense)} />
+          <Metric label="Variáveis" value={formatBRL(snapshot.variableExpense)} />
+          <Metric label="Parcelas no mês" value={formatBRL(snapshot.installmentExpense)} />
+          <Metric label="Ainda agendado" value={formatBRL(snapshot.scheduledExpense)} />
+        </div>
+        <div className="mt-2 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs text-muted">Margem prevista do mês</p>
+              <p className={cn("font-display text-2xl tabular-nums", snapshot.margin < 0 && "text-danger")}>
+                {formatBRL(snapshot.margin)}
+              </p>
+            </div>
+            <WalletCards className="size-5 text-primary" />
+          </div>
+          <p className="mt-2 text-xs text-muted">
+            Compromissos futuros cadastrados: {formatBRL(futureCommitted)}
           </p>
-        )
-      )}
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="size-5 text-primary" />
+          <h2 className="font-display text-xl">3 prioridades agora</h2>
+        </div>
+        <ol className="mt-3 flex flex-col gap-3">
+          {priorities.slice(0, 3).map((item, index) => (
+            <li key={item} className="flex gap-3 text-sm leading-relaxed">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary-soft text-xs font-semibold text-primary">
+                {index + 1}
+              </span>
+              <span>{item}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="mt-3 rounded-xl bg-primary-soft p-4 text-primary">
+        <div className="flex items-center gap-2">
+          <Target className="size-5" />
+          <p className="text-xs font-medium tracking-wide uppercase">Meta recomendada</p>
+        </div>
+        <h2 className="mt-2 font-display text-2xl">{goal.title}</h2>
+        <p className="mt-1 text-sm leading-relaxed text-primary/80">{goal.body}</p>
+      </section>
+
+      <section className="mt-6 border-t border-line pt-5">
+        <div className="flex items-center gap-2">
+          <Sparkles className="size-5 text-primary" />
+          <h2 className="font-display text-xl">Orientação detalhada</h2>
+        </div>
+        <p className="mt-1 text-sm text-muted">
+          A IA recebe os números já calculados para explicar onde agir. Ela não define seu saldo nem faz as contas principais.
+        </p>
+        <Button className="mt-4 w-full" onClick={() => void run()} disabled={busy}>
+          {busy ? (
+            <>
+              <Loader2 className="size-4 animate-spin" />
+              Analisando…
+            </>
+          ) : cached ? (
+            "Atualizar orientação"
+          ) : (
+            "Gerar orientação do consultor"
+          )}
+        </Button>
+
+        {cached ? (
+          <div className="stagger-in mt-4 flex flex-col gap-3">
+            <p className="rounded-xl bg-elevated p-4 text-sm leading-relaxed shadow-[var(--shadow-border)]">
+              {cached.summary}
+            </p>
+            {cached.items.map((item) => (
+              <article key={item.id} className="rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+                <div className="flex items-start justify-between gap-3">
+                  <h3 className="font-medium">{item.title}</h3>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                      item.severity === "high"
+                        ? "bg-danger-soft text-danger"
+                        : item.severity === "medium"
+                          ? "bg-warn-soft text-warn"
+                          : "bg-primary-soft text-primary",
+                    )}
+                  >
+                    {item.severity === "high" ? "Alto" : item.severity === "medium" ? "Médio" : "Leve"}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm leading-relaxed text-muted">{item.body}</p>
+                <div className="mt-3 flex items-center justify-between text-xs">
+                  <span className="text-muted">
+                    {item.category ? categoryLabel(item.category, state.customCategories) : "Geral"}
+                  </span>
+                  {item.impact > 0 ? (
+                    <span className="font-medium text-primary tabular-nums">−{formatBRL(item.impact)}/mês</span>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </section>
+
+      <p className="mt-6 text-center text-xs text-muted">
+        Base do diagnóstico: {snapshot.transactionCount} lançamento{snapshot.transactionCount === 1 ? "" : "s"}, {state.accounts.length} conta{state.accounts.length === 1 ? "" : "s"} e {state.plans.length} plano{state.plans.length === 1 ? "" : "s"} de parcelas.
+      </p>
     </main>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-elevated p-3 shadow-[var(--shadow-border)]">
+      <p className="text-[11px] text-muted">{label}</p>
+      <p className="mt-1 font-display text-lg tabular-nums">{value}</p>
+    </div>
   );
 }
