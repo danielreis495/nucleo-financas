@@ -188,11 +188,11 @@ function Home() {
             <Sparkles className="size-4" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block font-medium">Conselhos de corte</span>
+            <span className="block font-medium">Consultor financeiro</span>
             <span className="block text-sm text-primary/80">
               {overBudget.length
-                ? `${overBudget.length} categoria${overBudget.length > 1 ? "s" : ""} acima do teto`
-                : "Onde dá para aliviar este mês"}
+                ? `${overBudget.length} categoria${overBudget.length > 1 ? "s" : ""} acima do teto · veja seu plano`
+                : "Raio-X, prioridades e meta real para o mês"}
             </span>
           </span>
         </Link>

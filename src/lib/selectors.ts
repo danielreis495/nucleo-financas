@@ -7,6 +7,15 @@ import type {
 } from "./types";
 import { monthKey } from "./utils";
 
+const ESSENTIAL_CATEGORIES = new Set<CategoryId>([
+  "mercado",
+  "transporte",
+  "moradia",
+  "contas",
+  "saude",
+  "educacao",
+]);
+
 export function monthTransactions(state: FinanceState, key: string, includeScheduled = false) {
   return state.transactions.filter((t) => {
     if (monthKey(t.date) !== key) return false;
@@ -126,4 +135,112 @@ export function budgetUsage(state: FinanceState, key: string) {
 
 export function personById(people: Person[], id: string) {
   return people.find((p) => p.id === id);
+}
+
+export type FinancialSnapshot = {
+  income: number;
+  postedExpense: number;
+  scheduledExpense: number;
+  plannedOutflow: number;
+  essentialExpense: number;
+  variableExpense: number;
+  installmentExpense: number;
+  margin: number;
+  spendRatio: number;
+  installmentRatio: number;
+  score: number | null;
+  status: "Saudavel" | "Atencao" | "Apertada" | "Critica" | "Dados insuficientes";
+  suggestedSavings: number;
+  recoveryTarget: number;
+  transactionCount: number;
+  incomeCount: number;
+};
+
+function roundDown10(value: number) {
+  return Math.max(0, Math.floor(value / 10) * 10);
+}
+
+export function financialSnapshot(state: FinanceState, key: string): FinancialSnapshot {
+  const rows = monthTransactions(state, key, true);
+  const posted = rows.filter((t) => t.status === "posted");
+  const scheduled = rows.filter((t) => t.status === "scheduled");
+  const postedExpenses = expensesOf(posted);
+  const scheduledExpenses = expensesOf(scheduled);
+  const incomes = incomeOf(posted);
+
+  const income = sumBy(incomes, (t) => t.amount);
+  const postedExpense = sumBy(postedExpenses, (t) => t.amount);
+  const scheduledExpense = sumBy(scheduledExpenses, (t) => t.amount);
+  const plannedOutflow = postedExpense + scheduledExpense;
+  const essentialExpense = sumBy(
+    postedExpenses.filter((t) => ESSENTIAL_CATEGORIES.has(t.category)),
+    (t) => t.amount,
+  );
+  const variableExpense = Math.max(0, postedExpense - essentialExpense);
+  const installmentExpense = sumBy(
+    rows.filter((t) => t.type === "expense" && Boolean(t.installmentId)),
+    (t) => t.amount,
+  );
+  const margin = income - plannedOutflow;
+  const spendRatio = income > 0 ? plannedOutflow / income : 0;
+  const installmentRatio = income > 0 ? installmentExpense / income : 0;
+
+  let score: number | null = null;
+  if (income > 0) {
+    let points = 100;
+    if (spendRatio > 1) points -= 55;
+    else if (spendRatio > 0.9) points -= 38;
+    else if (spendRatio > 0.75) points -= 22;
+    else if (spendRatio > 0.6) points -= 10;
+
+    if (installmentRatio > 0.3) points -= 20;
+    else if (installmentRatio > 0.2) points -= 12;
+    else if (installmentRatio > 0.1) points -= 5;
+
+    if (margin / income >= 0.2) points += 5;
+    score = Math.max(0, Math.min(100, Math.round(points)));
+  }
+
+  const status =
+    score === null
+      ? "Dados insuficientes"
+      : score >= 80
+        ? "Saudavel"
+        : score >= 60
+          ? "Atencao"
+          : score >= 40
+            ? "Apertada"
+            : "Critica";
+
+  let suggestedSavings = 0;
+  if (income > 0 && margin > 0) {
+    const raw =
+      spendRatio > 0.9
+        ? Math.min(margin * 0.25, income * 0.03)
+        : spendRatio > 0.75
+          ? Math.min(margin * 0.35, income * 0.05)
+          : Math.min(margin * 0.5, income * 0.1);
+    suggestedSavings = roundDown10(raw);
+  }
+
+  const recoveryTarget = margin < 0 && income > 0 ? roundDown10(Math.abs(margin) + income * 0.05) : 0;
+
+  return {
+    income,
+    postedExpense,
+    scheduledExpense,
+    plannedOutflow,
+    essentialExpense,
+    variableExpense,
+    installmentExpense,
+    margin,
+    spendRatio,
+    installmentRatio,
+    score,
+    status,
+    suggestedSavings,
+    recoveryTarget,
+    transactionCount: posted.length,
+    incomeCount: incomes.length,
+  };
 }
