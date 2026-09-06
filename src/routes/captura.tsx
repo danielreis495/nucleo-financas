@@ -16,6 +16,7 @@ export const Route = createFileRoute("/captura")({ component: CapturaPage });
 
 function CapturaPage() {
   const people = useFinanceStore((s) => s.people);
+  const accounts = useFinanceStore((s) => s.accounts ?? []);
   const geminiKey = useFinanceStore((s) => s.geminiKey);
   const importExtracted = useFinanceStore((s) => s.importExtracted);
   const addQuick = useFinanceStore((s) => s.addQuickExpense);
@@ -32,6 +33,7 @@ function CapturaPage() {
   const [digits, setDigits] = useState("");
   const [category, setCategory] = useState<CategoryId>("mercado");
   const [personId, setPersonId] = useState(people[0]?.id ?? "");
+  const [accountId, setAccountId] = useState<string | null>(null);
 
   const amount = digits ? Number(digits) / 100 : 0;
 
@@ -151,6 +153,33 @@ function CapturaPage() {
           ))}
         </div>
 
+        <p className="mt-4 mb-2 text-xs font-medium text-muted">Conta</p>
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => setAccountId(null)}
+            className={cn(
+              "h-9 rounded-full px-3 text-xs font-medium",
+              accountId === null ? "bg-primary text-primary-fg" : "bg-line",
+            )}
+          >
+            Sem conta
+          </button>
+          {accounts.filter((a) => a.active).map((account) => (
+            <button
+              key={account.id}
+              type="button"
+              onClick={() => setAccountId(account.id)}
+              className={cn(
+                "h-9 max-w-full truncate rounded-full px-3 text-xs font-medium",
+                accountId === account.id ? "bg-primary text-primary-fg" : "bg-line",
+              )}
+            >
+              {account.name}
+            </button>
+          ))}
+        </div>
+
         <div className="mt-6 grid grid-cols-3 gap-2">
           {["1", "2", "3", "4", "5", "6", "7", "8", "9", "00", "0", "⌫"].map((key) => (
             <button
@@ -173,7 +202,7 @@ function CapturaPage() {
           <Button
             disabled={amount <= 0}
             onClick={() => {
-              addQuick({ amount, category, personId });
+              addQuick({ amount, category, personId, accountId });
               toast.success("Gasto lançado");
               setDigits("");
               void navigate({ to: "/" });
