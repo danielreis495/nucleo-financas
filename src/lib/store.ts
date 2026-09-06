@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type {
+  Account,
+  AccountType,
   AdviceCache,
   CategoryBudget,
   CategoryGroup,
@@ -30,6 +32,14 @@ type FinanceActions = {
   addPerson: (input: { name: string; role: PersonRole; color: PersonColor }) => void;
   updatePerson: (id: string, patch: Partial<Person>) => void;
   removePerson: (id: string) => void;
+  addAccount: (input: {
+    name: string;
+    institution: string;
+    type: AccountType;
+    openingBalance: number;
+  }) => void;
+  updateAccount: (id: string, patch: Partial<Account>) => void;
+  removeAccount: (id: string) => void;
   addQuickExpense: (input: {
     amount: number;
     category: CategoryId;
@@ -66,6 +76,7 @@ const emptyState = (): FinanceState => ({
     { id: "p-you", name: "Você", role: "you", color: "p1", monthlyBudget: null },
     { id: "p-casa", name: "Casa", role: "other", color: "p4", monthlyBudget: null },
   ],
+  accounts: [],
   transactions: [],
   plans: [],
   budgets: [],
@@ -164,6 +175,30 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           ),
           plans: plans.map((p) => (p.personId === id ? { ...p, personId: fallback } : p)),
         });
+      },
+      addAccount: ({ name, institution, type, openingBalance }) => {
+        const trimmedName = name.trim();
+        if (!trimmedName) return;
+        const account: Account = {
+          id: uid(),
+          name: trimmedName,
+          institution: institution.trim(),
+          type,
+          openingBalance: Number.isFinite(openingBalance) ? openingBalance : 0,
+          createdAt: new Date().toISOString(),
+          active: true,
+        };
+        set({ accounts: [account, ...get().accounts], demo: false });
+      },
+      updateAccount: (id, patch) =>
+        set({ accounts: get().accounts.map((a) => (a.id === id ? { ...a, ...patch } : a)) }),
+      removeAccount: (id) => {
+        const linked = get().transactions.some((t) => t.accountId === id);
+        if (linked) {
+          set({ accounts: get().accounts.map((a) => (a.id === id ? { ...a, active: false } : a)) });
+          return;
+        }
+        set({ accounts: get().accounts.filter((a) => a.id !== id) });
       },
       addQuickExpense: ({ amount, category, personId, description }) => {
         const date = todayIso();
@@ -319,9 +354,18 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
     {
       name: "nucleo-finance-v1",
       skipHydration: true,
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as Partial<FinanceState & FinanceActions>;
+        return {
+          ...current,
+          ...saved,
+          accounts: Array.isArray(saved.accounts) ? saved.accounts : [],
+        };
+      },
       partialize: (s) => ({
         householdName: s.householdName,
         people: s.people,
+        accounts: s.accounts,
         transactions: s.transactions,
         plans: s.plans,
         budgets: s.budgets,
