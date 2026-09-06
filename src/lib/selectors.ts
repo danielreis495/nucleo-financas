@@ -1,4 +1,5 @@
 import type {
+  Account,
   CategoryId,
   FinanceState,
   Person,
@@ -16,6 +17,23 @@ export function monthTransactions(state: FinanceState, key: string, includeSched
 
 export function sumBy<T>(rows: T[], pick: (row: T) => number) {
   return rows.reduce((acc, row) => acc + pick(row), 0);
+}
+
+export function accountMovement(state: FinanceState, account: Account) {
+  const anchorDate = account.createdAt.slice(0, 10);
+  return state.transactions
+    .filter(
+      (t) =>
+        t.accountId === account.id &&
+        t.status === "posted" &&
+        t.createdAt > account.createdAt &&
+        t.date >= anchorDate,
+    )
+    .reduce((sum, t) => sum + (t.type === "income" ? t.amount : -t.amount), 0);
+}
+
+export function accountBalance(state: FinanceState, account: Account) {
+  return account.openingBalance + accountMovement(state, account);
 }
 
 export function expensesOf(rows: Transaction[]) {
