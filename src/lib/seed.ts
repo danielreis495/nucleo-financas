@@ -1,4 +1,5 @@
 import type {
+  Account,
   CategoryBudget,
   FinanceState,
   InstallmentPlan,
@@ -17,6 +18,18 @@ const people: Person[] = [
   { id: BRUNO, name: "Bruno", role: "partner", color: "p2", monthlyBudget: 2800 },
   { id: SOFIA, name: "Sofia", role: "child", color: "p3", monthlyBudget: 400 },
   { id: CASA, name: "Casa", role: "other", color: "p4", monthlyBudget: null },
+];
+
+const accounts: Account[] = [
+  {
+    id: "acc-nubank",
+    name: "Conta principal",
+    type: "checking",
+    institution: "Nubank",
+    openingBalance: 0,
+    createdAt: "2026-08-01T12:00:00.000Z",
+    active: true,
+  },
 ];
 
 function tx(
@@ -39,6 +52,7 @@ function tx(
     status: extra.status ?? "posted",
     category,
     personId,
+    accountId: extra.accountId ?? null,
     split: extra.split ?? null,
     installmentId: extra.installmentId ?? null,
     installmentIndex: extra.installmentIndex ?? null,
@@ -87,10 +101,7 @@ const plans: InstallmentPlan[] = [
   },
 ];
 
-function expandPlan(
-  plan: InstallmentPlan,
-  today: string,
-): Transaction[] {
+function expandPlan(plan: InstallmentPlan, today: string): Transaction[] {
   const start = new Date(plan.startDate + "T12:00:00");
   const rows: Transaction[] = [];
   for (let i = 0; i < plan.totalCount; i++) {
@@ -124,12 +135,8 @@ function expandPlan(
 const today = "2026-08-29";
 
 const posted: Transaction[] = [
-  tx("t-sal-ana-08", "2026-08-05", "Salário", "Estúdio Norte", 8400, "salario", ANA, {
-    type: "income",
-  }),
-  tx("t-sal-bru-08", "2026-08-05", "Salário", "Atlas Eng.", 11200, "salario", BRUNO, {
-    type: "income",
-  }),
+  tx("t-sal-ana-08", "2026-08-05", "Salário", "Estúdio Norte", 8400, "salario", ANA, { type: "income" }),
+  tx("t-sal-bru-08", "2026-08-05", "Salário", "Atlas Eng.", 11200, "salario", BRUNO, { type: "income" }),
   tx("t-aluguel-08", "2026-08-08", "Aluguel", "Imobiliária Leme", 3200, "moradia", CASA),
   tx("t-cond-08", "2026-08-08", "Condomínio", "SíndicoNet", 680, "moradia", CASA),
   tx("t-energia-08", "2026-08-12", "Energia elétrica", "Enel", 312.4, "contas", CASA),
@@ -163,13 +170,8 @@ const posted: Transaction[] = [
   tx("t-parque", "2026-08-22", "Parque da Sofia", "Playcenter", 180.0, "lazer", SOFIA),
   tx("t-roupa", "2026-08-09", "Roupa de cama", "Renner", 129.9, "vestuario", CASA),
   tx("t-pet", "2026-08-11", "Ração Luna", "Petz", 167.5, "pets", CASA),
-
-  tx("t-sal-ana-07", "2026-07-05", "Salário", "Estúdio Norte", 8400, "salario", ANA, {
-    type: "income",
-  }),
-  tx("t-sal-bru-07", "2026-07-05", "Salário", "Atlas Eng.", 11200, "salario", BRUNO, {
-    type: "income",
-  }),
+  tx("t-sal-ana-07", "2026-07-05", "Salário", "Estúdio Norte", 8400, "salario", ANA, { type: "income" }),
+  tx("t-sal-bru-07", "2026-07-05", "Salário", "Atlas Eng.", 11200, "salario", BRUNO, { type: "income" }),
   tx("t-aluguel-07", "2026-07-08", "Aluguel", "Imobiliária Leme", 3200, "moradia", CASA),
   tx("t-cond-07", "2026-07-08", "Condomínio", "SíndicoNet", 680, "moradia", CASA),
   tx("t-energia-07", "2026-07-12", "Energia elétrica", "Enel", 298.1, "contas", CASA),
@@ -198,6 +200,7 @@ export function createSeedState(): FinanceState {
   return {
     householdName: "Família Almeida",
     people,
+    accounts,
     transactions: [...posted, ...installmentTx],
     plans,
     budgets: DEFAULT_BUDGETS as CategoryBudget[],

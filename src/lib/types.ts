@@ -10,6 +10,18 @@ export type Person = {
   monthlyBudget: number | null;
 };
 
+export type AccountType = "checking" | "savings" | "cash" | "investment" | "other";
+
+export type Account = {
+  id: string;
+  name: string;
+  type: AccountType;
+  institution: string;
+  openingBalance: number;
+  createdAt: string;
+  active: boolean;
+};
+
 export type CategoryId = string;
 
 export type CategoryGroup = "gasto" | "entrada";
@@ -40,6 +52,7 @@ export type Transaction = {
   status: TxStatus;
   category: CategoryId;
   personId: string;
+  accountId?: string | null;
   split: SplitShare[] | null;
   installmentId: string | null;
   installmentIndex: number | null;
@@ -102,6 +115,7 @@ export type ExtractedItem = {
 export type FinanceState = {
   householdName: string;
   people: Person[];
+  accounts: Account[];
   transactions: Transaction[];
   plans: InstallmentPlan[];
   budgets: CategoryBudget[];
