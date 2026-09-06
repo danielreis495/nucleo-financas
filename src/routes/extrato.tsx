@@ -119,6 +119,7 @@ function ExtratoPage() {
             <ul className="overflow-hidden rounded-xl shadow-[var(--shadow-border)]">
               {list.map((t, i) => {
                 const person = personById(state.people, t.personId);
+                const account = (state.accounts ?? []).find((a) => a.id === t.accountId);
                 const scheduled = t.status === "scheduled";
                 return (
                   <li key={t.id} className={i > 0 ? "border-t border-line" : ""}>
@@ -132,6 +133,7 @@ function ExtratoPage() {
                           <span className="block truncate text-sm font-medium">{t.merchant}</span>
                           <span className="block text-xs text-muted">
                             {categoryLabel(t.category, custom)}
+                            {account ? ` · ${account.name}` : " · sem conta"}
                             {t.installmentIndex
                               ? ` · ${t.installmentIndex}/${t.installmentTotal}`
                               : ""}
