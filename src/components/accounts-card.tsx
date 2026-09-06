@@ -32,9 +32,9 @@ export function AccountsCard() {
     <section className="mt-6 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-medium tracking-wide text-muted uppercase">Patrimônio líquido disponível</p>
+          <p className="text-xs font-medium tracking-wide text-muted uppercase">Saldo cadastrado</p>
           <h2 className="mt-1 font-display text-2xl">{formatBRL(total)}</h2>
-          <p className="mt-1 text-xs text-muted">Saldo inicial das contas. Os lançamentos entrarão no cálculo na próxima etapa.</p>
+          <p className="mt-1 text-xs text-muted">Soma dos saldos informados nas contas. Os lançamentos entrarão no cálculo na próxima etapa.</p>
         </div>
         <Button variant="secondary" size="icon" aria-label="Adicionar conta" onClick={() => setOpen((v) => !v)}>
           <Plus className="size-4" />
@@ -59,15 +59,10 @@ export function AccountsCard() {
                   <p className="text-sm font-semibold">{formatBRL(account.openingBalance)}</p>
                 </div>
                 <div className="mt-2 flex gap-2">
-                  <button
-                    className={cn("text-xs text-muted", account.active ? "" : "text-danger")}
-                    onClick={() => updateAccount(account.id, { active: !account.active })}
-                  >
+                  <button className={cn("text-xs text-muted", account.active ? "" : "text-danger")} onClick={() => updateAccount(account.id, { active: !account.active })}>
                     {account.active ? "Ativa" : "Inativa"}
                   </button>
-                  <button className="text-xs text-danger" onClick={() => removeAccount(account.id)}>
-                    Excluir
-                  </button>
+                  <button className="text-xs text-danger" onClick={() => removeAccount(account.id)}>Excluir</button>
                 </div>
               </div>
             );
@@ -87,7 +82,7 @@ export function AccountsCard() {
               <button key={item.id} onClick={() => setType(item.id)} className={cn("h-9 rounded-full px-3 text-xs font-medium", type === item.id ? "bg-primary text-primary-fg" : "bg-line")}>{item.label}</button>
             ))}
           </div>
-          <input value={balance} onChange={(e) => setBalance(e.target.value)} inputMode="decimal" placeholder="Saldo atual / inicial (ex.: 1250,50)" className="mt-2 h-11 w-full rounded-md bg-elevated px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary" />
+          <input value={balance} onChange={(e) => setBalance(e.target.value)} inputMode="decimal" placeholder="Saldo inicial (ex.: 1250,50)" className="mt-2 h-11 w-full rounded-md bg-elevated px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary" />
           <div className="mt-3 flex gap-2">
             <Button className="flex-1" disabled={!name.trim()} onClick={() => {
               const normalized = balance.replace(/\./g, "").replace(",", ".");
