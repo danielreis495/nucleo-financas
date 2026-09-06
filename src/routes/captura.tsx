@@ -39,6 +39,7 @@ function CapturaPage() {
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
+    setAccountId(null);
     setBusy(true);
     setStatus("Preparando arquivo…");
     try {
@@ -81,6 +82,7 @@ function CapturaPage() {
   function loadSample() {
     const casa = people.find((p) => p.role === "other") ?? people[0];
     const today = todayIso();
+    setAccountId(null);
     setSource("photo");
     setItems([
       {
@@ -114,10 +116,12 @@ function CapturaPage() {
     return (
       <CaptureReview
         items={items}
+        accountId={accountId}
+        onAccountChange={setAccountId}
         onChange={setItems}
         onCancel={() => setItems(null)}
         onConfirm={() => {
-          importExtracted(items, source);
+          importExtracted(items, source, accountId);
           toast.success("Lançamentos adicionados");
           setItems(null);
           void navigate({ to: "/extrato" });
