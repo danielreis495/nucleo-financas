@@ -7,6 +7,7 @@ import { CategoryPicker } from "@/components/category-picker";
 import { PersonAvatar } from "@/components/person-avatar";
 import { Button } from "@/components/ui/button";
 import { extractDocument } from "@/lib/ai";
+import { flagImportDuplicates, type DuplicateSummary } from "@/lib/duplicates";
 import { formatBRL } from "@/lib/money";
 import { useFinanceStore } from "@/lib/store";
 import type { CategoryId, ExtractedItem, TxSource } from "@/lib/types";
@@ -17,6 +18,7 @@ export const Route = createFileRoute("/captura")({ component: CapturaPage });
 function CapturaPage() {
   const people = useFinanceStore((s) => s.people);
   const accounts = useFinanceStore((s) => s.accounts ?? []);
+  const transactions = useFinanceStore((s) => s.transactions);
   const geminiKey = useFinanceStore((s) => s.geminiKey);
   const importExtracted = useFinanceStore((s) => s.importExtracted);
   const addQuick = useFinanceStore((s) => s.addQuickExpense);
@@ -28,6 +30,7 @@ function CapturaPage() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Lendo documento…");
   const [items, setItems] = useState<ExtractedItem[] | null>(null);
+  const [duplicateSummary, setDuplicateSummary] = useState<DuplicateSummary | null>(null);
   const [source, setSource] = useState<TxSource>("photo");
   const [quick, setQuick] = useState(false);
   const [digits, setDigits] = useState("");
@@ -40,6 +43,7 @@ function CapturaPage() {
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
     setAccountId(null);
+    setDuplicateSummary(null);
     setBusy(true);
     setStatus("Preparando arquivo…");
     try {
@@ -71,7 +75,10 @@ function CapturaPage() {
         toast.error("Não achei lançamentos nesse arquivo.");
         return;
       }
-      setItems(result.items);
+
+      const checked = flagImportDuplicates(result.items, transactions);
+      setDuplicateSummary(checked.summary);
+      setItems(checked.items);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao ler o arquivo.");
     } finally {
@@ -83,6 +90,7 @@ function CapturaPage() {
     const casa = people.find((p) => p.role === "other") ?? people[0];
     const today = todayIso();
     setAccountId(null);
+    setDuplicateSummary(null);
     setSource("photo");
     setItems([
       {
@@ -117,13 +125,18 @@ function CapturaPage() {
       <CaptureReview
         items={items}
         accountId={accountId}
+        duplicateSummary={duplicateSummary}
         onAccountChange={setAccountId}
         onChange={setItems}
-        onCancel={() => setItems(null)}
+        onCancel={() => {
+          setItems(null);
+          setDuplicateSummary(null);
+        }}
         onConfirm={() => {
           importExtracted(items, source, accountId);
           toast.success("Lançamentos adicionados");
           setItems(null);
+          setDuplicateSummary(null);
           void navigate({ to: "/extrato" });
         }}
       />
