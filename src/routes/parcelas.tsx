@@ -33,6 +33,20 @@ function ParcelasPage() {
         O Núcleo lança cada parcela no mês certo e marca as vencidas sozinho.
       </p>
 
+      <Button className="mt-4" variant="secondary" onClick={() => setOpen((v) => !v)}>
+        {open ? "Fechar cadastro" : "+ Cadastrar nova parcela"}
+      </Button>
+
+      {open ? (
+        <NewPlanForm
+          onSave={(data) => {
+            addPlan(data);
+            setOpen(false);
+            toast.success("Parcelas programadas");
+          }}
+        />
+      ) : null}
+
       <div className="mt-5 rounded-xl bg-primary px-5 py-4 text-primary-fg">
         <p className="text-xs text-primary-fg/70">A pagar daqui pra frente</p>
         <p className="font-display text-3xl tabular-nums">{formatBRL(committed)}</p>
@@ -41,7 +55,7 @@ function ParcelasPage() {
       <ul className="mt-5 flex flex-col gap-3">
         {active.length === 0 ? (
           <li className="rounded-xl bg-elevated px-4 py-6 text-sm text-muted shadow-[var(--shadow-border)]">
-            Nenhuma parcela ativa. Capture uma fatura ou cadastre abaixo.
+            Nenhuma parcela ativa. Capture uma fatura ou cadastre acima.
           </li>
         ) : (
           active.map(({ plan, progress }) => {
@@ -84,20 +98,6 @@ function ParcelasPage() {
           })
         )}
       </ul>
-
-      <Button className="mt-5" variant="secondary" onClick={() => setOpen((v) => !v)}>
-        {open ? "Fechar cadastro" : "Cadastrar parcela"}
-      </Button>
-
-      {open ? (
-        <NewPlanForm
-          onSave={(data) => {
-            addPlan(data);
-            setOpen(false);
-            toast.success("Parcelas programadas");
-          }}
-        />
-      ) : null}
     </main>
   );
 }
@@ -121,22 +121,23 @@ function NewPlanForm({
   const [category, setCategory] = useState<CategoryId>("outros");
   const [personId, setPersonId] = useState(people[0]?.id ?? "");
   const [digits, setDigits] = useState("");
-  const [count, setCount] = useState(12);
+  const [count, setCount] = useState("12");
   const [title, setTitle] = useState("");
   const amount = digits ? Number(digits) / 100 : 0;
+  const totalCount = Math.max(1, Math.min(120, Number(count) || 1));
 
   return (
     <form
       className="mt-4 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]"
       onSubmit={(e) => {
         e.preventDefault();
-        if (!title.trim() || amount <= 0) return;
+        if (!title.trim() || amount <= 0 || !count.trim()) return;
         onSave({
           title: title.trim(),
           merchant: title.trim(),
           kind,
           installmentAmount: amount,
-          totalCount: count,
+          totalCount,
           startDate: todayIso(),
           personId,
           category,
@@ -192,16 +193,31 @@ function NewPlanForm({
         ))}
       </div>
 
-      <p className="text-xs font-medium text-muted">Quantas vezes</p>
-      <div className="mt-1 mb-3 flex flex-wrap gap-1.5">
+      <label className="text-xs font-medium text-muted" htmlFor="installment-count">
+        Número de parcelas
+      </label>
+      <div className="mt-1 mb-2 flex items-center gap-2">
+        <input
+          id="installment-count"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={120}
+          value={count}
+          onChange={(e) => setCount(e.target.value.replace(/\D/g, "").slice(0, 3))}
+          className="h-11 w-28 rounded-md bg-surface px-3 text-center font-display text-lg tabular-nums shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
+        />
+        <span className="text-sm text-muted">parcelas</span>
+      </div>
+      <div className="mb-3 flex flex-wrap gap-1.5">
         {[3, 6, 10, 12, 18, 24].map((n) => (
           <button
             key={n}
             type="button"
-            onClick={() => setCount(n)}
+            onClick={() => setCount(String(n))}
             className={cn(
               "h-9 min-w-10 rounded-full px-3 text-xs font-medium",
-              count === n ? "bg-primary text-primary-fg" : "bg-line",
+              totalCount === n ? "bg-primary text-primary-fg" : "bg-line",
             )}
           >
             {n}x
@@ -232,8 +248,12 @@ function NewPlanForm({
         ))}
       </div>
 
-      <Button type="submit" className="w-full" disabled={!title.trim() || amount <= 0}>
-        Programar {count}x de {formatBRL(amount)}
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={!title.trim() || amount <= 0 || !count.trim() || totalCount < 1}
+      >
+        Programar {totalCount}x de {formatBRL(amount)}
       </Button>
     </form>
   );
