@@ -15,6 +15,8 @@ const FALLBACK_MODELS = [
   "gemini-3.7-flash",
 ];
 
+let modelCache: { fingerprint: string; expiresAt: number; models: string[] } | null = null;
+
 export type ImagePart = { mime: string; base64: string };
 
 export type ExtractPayload = {
@@ -111,7 +113,15 @@ function modelRank(name: string) {
   return 5;
 }
 
+function modelFingerprint(apiKey: string) {
+  return `${apiKey.slice(0, 4)}:${apiKey.slice(-4)}`;
+}
+
 async function listGeminiModels(apiKey: string): Promise<string[]> {
+  const fingerprint = modelFingerprint(apiKey);
+  if (modelCache && modelCache.fingerprint === fingerprint && modelCache.expiresAt > Date.now()) {
+    return modelCache.models;
+  }
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
@@ -124,7 +134,9 @@ async function listGeminiModels(apiKey: string): Promise<string[]> {
       .filter((m) => (m.supportedGenerationMethods ?? []).includes("generateContent"))
       .map((m) => String(m.name ?? "").replace(/^models\//, ""))
       .filter((n) => /flash/i.test(n) && !/tts|image|exp|preview/i.test(n));
-    return names.sort((a, b) => modelRank(a) - modelRank(b));
+    const models = names.sort((a, b) => modelRank(a) - modelRank(b));
+    modelCache = { fingerprint, expiresAt: Date.now() + 30 * 60 * 1000, models };
+    return models;
   } catch {
     return [];
   }
