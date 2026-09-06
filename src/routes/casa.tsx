@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { PersonAvatar, personColorClass } from "@/components/person-avatar";
@@ -20,6 +20,102 @@ const ROLES: { id: PersonRole; label: string }[] = [
 ];
 
 const COLORS: PersonColor[] = ["p1", "p2", "p3", "p4", "p5"];
+const STORAGE_KEY = "nucleo-finance-v1";
+const BACKUP_VERSION = 1;
+
+type BackupFile = {
+  app: "nucleo-financas";
+  backupVersion: number;
+  createdAt: string;
+  storageKey: string;
+  data: {
+    state: Record<string, unknown>;
+    version?: number;
+  };
+};
+
+function downloadBackup() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) throw new Error("Não encontrei os dados deste aparelho.");
+    const parsed = JSON.parse(raw) as BackupFile["data"];
+    if (!parsed?.state || typeof parsed.state !== "object") {
+      throw new Error("Os dados locais estão em um formato inesperado.");
+    }
+
+    // A chave do Gemini não entra no arquivo de backup. Além de ser desnecessária
+    // para os dados financeiros, isso evita colocar um segredo em um arquivo que
+    // pode ser compartilhado. O restore preserva a chave que já estiver no aparelho.
+    const state = { ...parsed.state };
+    delete state.geminiKey;
+
+    const backup: BackupFile = {
+      app: "nucleo-financas",
+      backupVersion: BACKUP_VERSION,
+      createdAt: new Date().toISOString(),
+      storageKey: STORAGE_KEY,
+      data: {
+        ...parsed,
+        state,
+      },
+    };
+
+    const blob = new Blob([JSON.stringify(backup, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `nucleo-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    toast.success("Backup criado. Guarde o arquivo em um local seguro.");
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "Não consegui criar o backup.");
+  }
+}
+
+function restoreBackup(file: File, currentGeminiKey: string) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const backup = JSON.parse(String(reader.result)) as BackupFile;
+      const state = backup?.data?.state;
+      if (
+        backup?.app !== "nucleo-financas" ||
+        backup.backupVersion !== BACKUP_VERSION ||
+        !state ||
+        typeof state !== "object" ||
+        !Array.isArray(state.people) ||
+        !Array.isArray(state.transactions) ||
+        !Array.isArray(state.plans) ||
+        !Array.isArray(state.budgets) ||
+        !Array.isArray(state.customCategories)
+      ) {
+        throw new Error("Esse arquivo não é um backup válido do Núcleo.");
+      }
+
+      // Mantém a chave do Gemini já existente no aparelho; ela nunca é importada
+      // de um arquivo externo.
+      const restored = {
+        ...backup.data,
+        state: {
+          ...state,
+          geminiKey: currentGeminiKey,
+        },
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(restored));
+      toast.success("Backup restaurado. Reabrindo o Núcleo…");
+      window.setTimeout(() => window.location.reload(), 500);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não consegui restaurar o backup.");
+    }
+  };
+  reader.onerror = () => toast.error("Não consegui ler o arquivo de backup.");
+  reader.readAsText(file);
+}
 
 function CasaPage() {
   const state = useFinanceStore();
@@ -36,6 +132,7 @@ function CasaPage() {
   const [name, setName] = useState("");
   const [role, setRole] = useState<PersonRole>("partner");
   const [color, setColor] = useState<PersonColor>("p2");
+  const restoreInput = useRef<HTMLInputElement>(null);
 
   return (
     <main className="flex flex-col px-5 pt-6 pb-8">
@@ -162,6 +259,35 @@ function CasaPage() {
       </Link>
 
       <GeminiKeyCard />
+
+      <section className="mt-6 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+        <h2 className="font-display text-xl">Segurança dos dados</h2>
+        <p className="mt-1 text-sm text-muted">
+          Seus dados financeiros atuais ficam neste aparelho. Faça um backup antes de trocar de celular ou de fazer mudanças importantes no app.
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Button variant="secondary" onClick={downloadBackup}>
+            Fazer backup
+          </Button>
+          <Button variant="secondary" onClick={() => restoreInput.current?.click()}>
+            Restaurar backup
+          </Button>
+        </div>
+        <input
+          ref={restoreInput}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) restoreBackup(file, state.geminiKey);
+          }}
+        />
+        <p className="mt-3 text-xs text-muted">
+          O backup não inclui a chave do Gemini. Isso é intencional: segredos não devem viajar junto com seus dados.
+        </p>
+      </section>
 
       <div className="mt-8 flex flex-col gap-2">
         <Button
