@@ -45,6 +45,7 @@ type FinanceActions = {
     category: CategoryId;
     personId: string;
     description?: string;
+    accountId?: string | null;
   }) => void;
   updateTransaction: (id: string, patch: Partial<Transaction>) => void;
   removeTransaction: (id: string) => void;
@@ -200,7 +201,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         }
         set({ accounts: get().accounts.filter((a) => a.id !== id) });
       },
-      addQuickExpense: ({ amount, category, personId, description }) => {
+      addQuickExpense: ({ amount, category, personId, description, accountId }) => {
         const date = todayIso();
         const t: Transaction = {
           id: uid(),
@@ -212,6 +213,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           status: "posted",
           category,
           personId,
+          accountId: accountId ?? null,
           split: null,
           installmentId: null,
           installmentIndex: null,
