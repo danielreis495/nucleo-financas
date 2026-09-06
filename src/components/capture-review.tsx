@@ -12,6 +12,7 @@ import { Button } from "./ui/button";
 export function CaptureReview({
   items,
   accountId,
+  duplicateSummary,
   onAccountChange,
   onChange,
   onConfirm,
@@ -19,6 +20,7 @@ export function CaptureReview({
 }: {
   items: ExtractedItem[];
   accountId: string | null;
+  duplicateSummary?: { possibleCount: number; exactCount: number } | null;
   onAccountChange: (accountId: string | null) => void;
   onChange: (items: ExtractedItem[]) => void;
   onConfirm: () => void;
@@ -35,12 +37,30 @@ export function CaptureReview({
     onChange(items.map((i) => (i.id === id ? { ...i, ...next } : i)));
   }
 
+  const possibleLabel = duplicateSummary
+    ? `${duplicateSummary.possibleCount} ${duplicateSummary.possibleCount === 1 ? "lançamento parece" : "lançamentos parecem"} já existir.`
+    : "";
+  const exactLabel = duplicateSummary?.exactCount
+    ? `${duplicateSummary.exactCount} ${duplicateSummary.exactCount === 1 ? "correspondência exata foi desmarcada" : "correspondências exatas foram desmarcadas"}.`
+    : "";
+
   return (
     <div className="flex flex-1 flex-col">
       <header className="px-5 pt-6 pb-3">
         <p className="text-xs font-medium tracking-wide text-muted uppercase">Conferir e tocar</p>
         <h1 className="font-display text-3xl tracking-tight">Encontrei {items.length}</h1>
         <p className="mt-1 text-sm text-muted">Toque na categoria ou na pessoa para trocar. Nada de teclado.</p>
+
+        {duplicateSummary && duplicateSummary.possibleCount > 0 ? (
+          <div className="mt-4 rounded-lg bg-warn-soft px-3 py-2.5 text-sm text-warn">
+            <p className="font-medium">
+              {possibleLabel} {exactLabel}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed opacity-90">
+              Revise antes de lançar. Você pode marcar novamente um item legítimo.
+            </p>
+          </div>
+        ) : null}
 
         <p className="mt-4 mb-2 text-xs font-medium text-muted">Conta dos lançamentos</p>
         <div className="flex flex-wrap gap-1.5">
