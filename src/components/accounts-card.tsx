@@ -3,6 +3,7 @@ import { Building2, CreditCard, Landmark, MoreHorizontal, Plus, Wallet } from "l
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatBRL } from "@/lib/money";
+import { accountBalance, accountMovement } from "@/lib/selectors";
 import { useFinanceStore } from "@/lib/store";
 import type { AccountType } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -16,7 +17,8 @@ const TYPES: { id: AccountType; label: string; icon: typeof Wallet }[] = [
 ];
 
 export function AccountsCard() {
-  const accounts = useFinanceStore((s) => s.accounts);
+  const state = useFinanceStore();
+  const accounts = state.accounts;
   const addAccount = useFinanceStore((s) => s.addAccount);
   const updateAccount = useFinanceStore((s) => s.updateAccount);
   const removeAccount = useFinanceStore((s) => s.removeAccount);
@@ -26,7 +28,9 @@ export function AccountsCard() {
   const [type, setType] = useState<AccountType>("checking");
   const [balance, setBalance] = useState("");
 
-  const total = accounts.filter((a) => a.active).reduce((sum, a) => sum + a.openingBalance, 0);
+  const total = accounts
+    .filter((a) => a.active)
+    .reduce((sum, account) => sum + accountBalance(state, account), 0);
 
   return (
     <section className="mt-6 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
@@ -35,7 +39,7 @@ export function AccountsCard() {
           <p className="text-xs font-medium tracking-wide text-muted uppercase">Contas e saldos</p>
           <h2 className="mt-1 font-display text-2xl">{formatBRL(total)}</h2>
           <p className="mt-1 text-xs text-muted">
-            Saldo informado das contas ativas. Nesta etapa, os lançamentos ainda não alteram esse valor.
+            Saldo informado + movimentações vinculadas posteriores à criação da conta. Histórico antigo não é descontado novamente.
           </p>
         </div>
         <Button variant="secondary" size="icon" aria-label="Adicionar conta" onClick={() => setOpen((v) => !v)}>
@@ -48,6 +52,8 @@ export function AccountsCard() {
           {accounts.map((account) => {
             const typeInfo = TYPES.find((t) => t.id === account.type) ?? TYPES[4];
             const Icon = typeInfo.icon;
+            const movement = accountMovement(state, account);
+            const calculatedBalance = accountBalance(state, account);
             return (
               <div key={account.id} className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
                 <div className="flex items-center gap-3">
@@ -57,8 +63,11 @@ export function AccountsCard() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{account.name}</p>
                     <p className="truncate text-xs text-muted">{account.institution || typeInfo.label}</p>
+                    <p className="mt-0.5 text-[11px] text-muted">
+                      Base {formatBRL(account.openingBalance)} · Mov. {movement >= 0 ? "+" : "−"}{formatBRL(Math.abs(movement))}
+                    </p>
                   </div>
-                  <p className="text-sm font-semibold">{formatBRL(account.openingBalance)}</p>
+                  <p className="text-sm font-semibold">{formatBRL(calculatedBalance)}</p>
                 </div>
                 <div className="mt-2 flex gap-3">
                   <button

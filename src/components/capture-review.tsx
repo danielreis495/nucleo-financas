@@ -11,16 +11,21 @@ import { Button } from "./ui/button";
 
 export function CaptureReview({
   items,
+  accountId,
+  onAccountChange,
   onChange,
   onConfirm,
   onCancel,
 }: {
   items: ExtractedItem[];
+  accountId: string | null;
+  onAccountChange: (accountId: string | null) => void;
   onChange: (items: ExtractedItem[]) => void;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
   const people = useFinanceStore((s) => s.people);
+  const accounts = useFinanceStore((s) => s.accounts ?? []);
   const custom = useFinanceStore((s) => s.customCategories);
   const selectedCount = items.filter((i) => i.selected).length;
   const total = items.filter((i) => i.selected).reduce((a, i) => a + i.amount, 0);
@@ -36,6 +41,36 @@ export function CaptureReview({
         <p className="text-xs font-medium tracking-wide text-muted uppercase">Conferir e tocar</p>
         <h1 className="font-display text-3xl tracking-tight">Encontrei {items.length}</h1>
         <p className="mt-1 text-sm text-muted">Toque na categoria ou na pessoa para trocar. Nada de teclado.</p>
+
+        <p className="mt-4 mb-2 text-xs font-medium text-muted">Conta dos lançamentos</p>
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => onAccountChange(null)}
+            className={cn(
+              "h-9 rounded-full px-3 text-xs font-medium",
+              accountId === null ? "bg-primary text-primary-fg" : "bg-line text-fg",
+            )}
+          >
+            Sem conta
+          </button>
+          {accounts.filter((a) => a.active).map((account) => (
+            <button
+              key={account.id}
+              type="button"
+              onClick={() => onAccountChange(account.id)}
+              className={cn(
+                "h-9 max-w-full truncate rounded-full px-3 text-xs font-medium",
+                accountId === account.id ? "bg-primary text-primary-fg" : "bg-line text-fg",
+              )}
+            >
+              {account.name}
+            </button>
+          ))}
+        </div>
+        {accounts.length === 0 ? (
+          <p className="mt-2 text-xs text-muted">Cadastre uma conta em Casa para vincular a importação.</p>
+        ) : null}
       </header>
 
       <ul className="flex flex-1 flex-col gap-2 overflow-y-auto px-4 pb-4">

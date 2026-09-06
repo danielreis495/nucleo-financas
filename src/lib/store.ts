@@ -45,13 +45,14 @@ type FinanceActions = {
     category: CategoryId;
     personId: string;
     description?: string;
+    accountId?: string | null;
   }) => void;
   updateTransaction: (id: string, patch: Partial<Transaction>) => void;
   removeTransaction: (id: string) => void;
   restoreTransaction: (tx: Transaction) => void;
   addCustomCategory: (input: { label: string; group: CategoryGroup }) => string;
   setBudget: (category: CategoryId, monthlyLimit: number) => void;
-  importExtracted: (items: ExtractedItem[], source: TxSource) => void;
+  importExtracted: (items: ExtractedItem[], source: TxSource, accountId?: string | null) => void;
   addInstallmentPlan: (input: {
     title: string;
     merchant: string;
@@ -96,6 +97,7 @@ function expandNewPlan(input: {
   personId: string;
   category: CategoryId;
   currentIndex?: number;
+  accountId?: string | null;
 }): Transaction[] {
   const start = new Date(input.startDate + "T12:00:00");
   const today = todayIso();
@@ -117,6 +119,7 @@ function expandNewPlan(input: {
       status: alreadyPaid || date <= today ? "posted" : "scheduled",
       category: input.category,
       personId: input.personId,
+      accountId: input.accountId ?? null,
       split: null,
       installmentId: input.id,
       installmentIndex: index,
@@ -200,7 +203,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         }
         set({ accounts: get().accounts.filter((a) => a.id !== id) });
       },
-      addQuickExpense: ({ amount, category, personId, description }) => {
+      addQuickExpense: ({ amount, category, personId, description, accountId }) => {
         const date = todayIso();
         const t: Transaction = {
           id: uid(),
@@ -212,6 +215,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           status: "posted",
           category,
           personId,
+          accountId: accountId ?? null,
           split: null,
           installmentId: null,
           installmentIndex: null,
@@ -257,7 +261,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           : [...budgets, { category, monthlyLimit }];
         set({ budgets: next });
       },
-      importExtracted: (items, source) => {
+      importExtracted: (items, source, accountId = null) => {
         const selected = items.filter((i) => i.selected && i.amount > 0);
         const newPlans: FinanceState["plans"] = [];
         const newTx: Transaction[] = [];
@@ -290,6 +294,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
                 personId: item.personId,
                 category: item.category,
                 currentIndex: item.installment.current,
+                accountId,
               }),
             );
           } else {
@@ -303,6 +308,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
               status: "posted",
               category: item.category,
               personId: item.personId,
+              accountId: accountId ?? null,
               split: null,
               installmentId: null,
               installmentIndex: null,

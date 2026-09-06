@@ -104,7 +104,6 @@ async function preparePdf(file: File): Promise<PreparedDocument> {
   const pageCount = Math.min(pdf.numPages, 12);
   const textParts: string[] = [];
   const images: { mime: string; base64: string }[] = [];
-  let textChars = 0;
 
   for (let i = 1; i <= pageCount; i++) {
     const page = await pdf.getPage(i);
@@ -113,25 +112,23 @@ async function preparePdf(file: File): Promise<PreparedDocument> {
     const pageText = lines.join("\n").trim();
     if (pageText) {
       textParts.push(`--- página ${i} ---\n${pageText}`);
-      textChars += pageText.length;
     }
 
     const scanned = pageText.length < 80;
-    const wantImage = scanned ? images.length < 8 : images.length < 3;
+    const wantImage = scanned && images.length < 6;
     if (!wantImage) continue;
 
-    const scale = scanned ? 2 : 1.7;
-    const viewport = page.getViewport({ scale });
-    const maxEdge = 1800;
+    const viewport = page.getViewport({ scale: 1.8 });
+    const maxEdge = 1600;
     const fit = Math.min(1, maxEdge / Math.max(viewport.width, viewport.height));
-    const view = fit < 1 ? page.getViewport({ scale: scale * fit }) : viewport;
+    const view = fit < 1 ? page.getViewport({ scale: 1.8 * fit }) : viewport;
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(view.width));
     canvas.height = Math.max(1, Math.round(view.height));
     const ctx = canvas.getContext("2d");
     if (!ctx) continue;
     await page.render({ canvasContext: ctx, viewport: view, canvas }).promise;
-    images.push({ mime: "image/jpeg", base64: await canvasToJpeg(canvas, scanned ? 0.85 : 0.78) });
+    images.push({ mime: "image/jpeg", base64: await canvasToJpeg(canvas, 0.82) });
   }
 
   const text = textParts.join("\n\n").slice(0, 40000);
@@ -145,7 +142,7 @@ async function preparePdf(file: File): Promise<PreparedDocument> {
       text.length > 20
         ? `${looksLikeFatura ? "TIPO: fatura ou extrato de cartão brasileiro.\n" : ""}Arquivo: ${file.name}\nPáginas lidas: ${pageCount} de ${pdf.numPages}\n\n${text}`
         : undefined,
-    images: images.slice(0, 8),
+    images: images.slice(0, 6),
   };
 }
 

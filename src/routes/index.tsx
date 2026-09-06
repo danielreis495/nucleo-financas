@@ -56,18 +56,26 @@ function Home() {
         <p className="text-xs font-medium tracking-wide text-primary-fg/70 uppercase">Saldo do mês</p>
         <p className="mt-1 font-display text-4xl tabular-nums tracking-tight">{formatBRL(totals.balance)}</p>
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="rounded-md bg-primary-fg/10 px-3 py-2">
+          <Link
+            to="/extrato"
+            search={{ type: "income" }}
+            className="rounded-md bg-primary-fg/10 px-3 py-2 transition-colors active:bg-primary-fg/20"
+          >
             <p className="flex items-center gap-1 text-[11px] text-primary-fg/70">
               <ArrowUpRight className="size-3" /> Entradas
             </p>
             <p className="font-display text-lg tabular-nums">{formatBRLCompact(totals.income)}</p>
-          </div>
-          <div className="rounded-md bg-primary-fg/10 px-3 py-2">
+          </Link>
+          <Link
+            to="/extrato"
+            search={{ type: "expense" }}
+            className="rounded-md bg-primary-fg/10 px-3 py-2 transition-colors active:bg-primary-fg/20"
+          >
             <p className="flex items-center gap-1 text-[11px] text-primary-fg/70">
               <ArrowDownRight className="size-3" /> Saídas
             </p>
             <p className="font-display text-lg tabular-nums">{formatBRLCompact(totals.expense)}</p>
-          </div>
+          </Link>
         </div>
       </section>
 
@@ -94,14 +102,16 @@ function Home() {
         </div>
         <div className="flex gap-2 overflow-x-auto pb-1">
           {people.map(({ person, amount }) => (
-            <div
+            <Link
               key={person.id}
-              className="min-w-[118px] rounded-xl bg-elevated px-3 py-3 shadow-[var(--shadow-border)]"
+              to="/extrato"
+              search={{ person: person.id, type: "expense" }}
+              className="min-w-[118px] rounded-xl bg-elevated px-3 py-3 shadow-[var(--shadow-border)] transition-transform active:scale-[0.98]"
             >
               <PersonAvatar person={person} />
               <p className="mt-2 text-sm font-medium">{person.name}</p>
               <p className="font-display text-base tabular-nums">{formatBRLCompact(amount)}</p>
-            </div>
+            </Link>
           ))}
         </div>
       </section>
@@ -117,7 +127,7 @@ function Home() {
               <li key={c.category}>
                 <Link
                   to="/extrato"
-                  search={{ cat: c.category }}
+                  search={{ cat: c.category, type: "expense" }}
                   className="block"
                 >
                   <div className="mb-1 flex items-baseline justify-between text-sm">

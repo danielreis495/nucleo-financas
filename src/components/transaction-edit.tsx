@@ -16,6 +16,7 @@ export function TransactionEdit({
 }) {
   const update = useFinanceStore((s) => s.updateTransaction);
   const people = useFinanceStore((s) => s.people);
+  const accounts = useFinanceStore((s) => s.accounts ?? []);
   const live = useFinanceStore((s) => s.transactions.find((t) => t.id === tx.id)) ?? tx;
 
   const [merchant, setMerchant] = useState(live.merchant);
@@ -127,6 +128,38 @@ export function TransactionEdit({
             group={live.type === "income" ? "entrada" : "gasto"}
             onChange={(id) => update(live.id, { category: id })}
           />
+
+          <p className="mt-4 mb-2 text-xs font-medium text-muted">Conta</p>
+          <div className="mb-1 flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => update(live.id, { accountId: null })}
+              className={cn(
+                "h-9 rounded-full px-3 text-xs font-medium",
+                !live.accountId ? "bg-primary text-primary-fg" : "bg-line text-fg",
+              )}
+            >
+              Sem conta
+            </button>
+            {accounts.filter((a) => a.active || a.id === live.accountId).map((account) => (
+              <button
+                key={account.id}
+                type="button"
+                onClick={() => update(live.id, { accountId: account.id })}
+                className={cn(
+                  "h-9 max-w-full truncate rounded-full px-3 text-xs font-medium",
+                  live.accountId === account.id ? "bg-primary text-primary-fg" : "bg-line text-fg",
+                )}
+              >
+                {account.name}
+              </button>
+            ))}
+          </div>
+          {accounts.length === 0 ? (
+            <p className="mb-4 text-xs text-muted">Cadastre uma conta em Casa para vinculá-la aos lançamentos.</p>
+          ) : (
+            <p className="mb-4 text-xs text-muted">Lançamentos antigos continuam sem conta até você escolher uma.</p>
+          )}
 
           <p className="mt-4 mb-2 text-xs font-medium text-muted">Quem</p>
           <div className="mb-4 flex flex-wrap gap-1.5">
