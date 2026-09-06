@@ -12,30 +12,45 @@ import { useFinanceStore } from "@/lib/store";
 import type { CategoryId, Transaction } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type ExtratoSearch = { cat?: string };
+type ExtratoSearch = {
+  cat?: string;
+  person?: string;
+  type?: "expense" | "income";
+};
 
 export const Route = createFileRoute("/extrato")({
   validateSearch: (search: Record<string, unknown>): ExtratoSearch => ({
     cat: typeof search.cat === "string" ? search.cat : undefined,
+    person: typeof search.person === "string" ? search.person : undefined,
+    type: search.type === "expense" || search.type === "income" ? search.type : undefined,
   }),
   component: ExtratoPage,
 });
 
 function ExtratoPage() {
-  const { cat } = Route.useSearch();
+  const { cat, person, type } = Route.useSearch();
   const month = useFinanceStore((s) => s.viewMonth);
   const setMonth = useFinanceStore((s) => s.setViewMonth);
   const state = useFinanceStore();
   const custom = useFinanceStore((s) => s.customCategories);
   const remove = useFinanceStore((s) => s.removeTransaction);
   const restore = useFinanceStore((s) => s.restoreTransaction);
-  const [personId, setPersonId] = useState<string | "all">("all");
+  const [personId, setPersonId] = useState<string | "all">(person ?? "all");
   const [category, setCategory] = useState<CategoryId | "all">(cat ?? "all");
+  const [txType, setTxType] = useState<Transaction["type"] | "all">(type ?? "all");
   const [editing, setEditing] = useState<Transaction | null>(null);
 
   useEffect(() => {
-    if (cat) setCategory(cat);
+    setPersonId(person ?? "all");
+  }, [person]);
+
+  useEffect(() => {
+    setCategory(cat ?? "all");
   }, [cat]);
+
+  useEffect(() => {
+    setTxType(type ?? "all");
+  }, [type]);
 
   const expenseCats = categoriesFor("gasto", custom);
   const incomeCats = categoriesFor("entrada", custom);
@@ -43,10 +58,11 @@ function ExtratoPage() {
 
   const rows = useMemo(() => {
     return monthTransactions(state, month, true)
+      .filter((t) => (txType === "all" ? true : t.type === txType))
       .filter((t) => (personId === "all" ? true : t.personId === personId))
       .filter((t) => (category === "all" ? true : t.category === category))
       .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
-  }, [state, month, personId, category]);
+  }, [state, month, txType, personId, category]);
 
   const groups = useMemo(() => {
     const map = new Map<string, typeof rows>();
@@ -86,6 +102,18 @@ function ExtratoPage() {
           </p>
         </div>
       ) : null}
+
+      <div className="flex gap-2 overflow-x-auto px-5 pb-2">
+        <FilterChip active={txType === "all"} onClick={() => setTxType("all")}>
+          Movimentos
+        </FilterChip>
+        <FilterChip active={txType === "expense"} onClick={() => setTxType("expense")}>
+          Saídas
+        </FilterChip>
+        <FilterChip active={txType === "income"} onClick={() => setTxType("income")}>
+          Entradas
+        </FilterChip>
+      </div>
 
       <div className="flex gap-2 overflow-x-auto px-5 pb-2">
         <FilterChip active={personId === "all"} onClick={() => setPersonId("all")}>
