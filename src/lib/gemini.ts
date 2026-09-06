@@ -242,7 +242,7 @@ export async function extractWithGemini(data: ExtractPayload): Promise<
   }
 
   const peopleList = data.people.map((p) => `${p.name} (${p.id}, ${p.role})`).join("; ");
-  const system = `Você extrai lançamentos de documentos financeiros brasileiros: fatura de cartão, extrato, boleto, NF e planilha.
+  const system = `Você extrai lançamentos de documentos financeiros brasileiros: fatura de cartão, extrato, boleto, NF, planilha, holerite, contracheque e demonstrativo de pagamento.
 Responda APENAS um JSON válido, sem markdown:
 {
   "items": [
@@ -268,6 +268,20 @@ FATURA / EXTRATO DE CARTÃO (Nubank, Inter, Itaú, C6, Bradesco, Santander, PicP
 - Parcela na linha (ex.: 03/10, 3/12, 10x): installment.current/total, kind "card", amount = valor da parcela.
 - Estorno / crédito na fatura: type "income".
 - Pix, TED e boleto no extrato: cada um é um item.
+
+HOLERITE / CONTRACHEQUE / DEMONSTRATIVO DE PAGAMENTO (inclusive holerite disponibilizado pelo Itaú):
+- Trate como folha salarial, NÃO como extrato bancário.
+- Retorne EXATAMENTE UM item representando o valor líquido efetivamente recebido pelo trabalhador.
+- amount = "líquido a receber", "salário líquido", "valor líquido" ou equivalente. NUNCA use salário bruto/total de proventos como amount.
+- type = "income" e category = "salario".
+- merchant = nome da empresa/empregador. Não use "Itaú" como merchant se o empregador estiver identificado.
+- description = "Salário líquido" seguido da competência quando ela estiver visível, por exemplo "Salário líquido 08/2026".
+- date = data de pagamento/crédito quando estiver impressa. Se só houver competência MM/AAAA, use o último dia daquele mês como data de referência.
+- installment = null.
+- Use o nome do empregado para escolher personId apenas quando ele corresponder claramente a uma pessoa cadastrada; caso contrário use ${data.defaultPersonId}.
+- Leia proventos e descontos para entender o documento, mas NÃO crie itens separados para salário-base, horas extras, INSS, IRRF, FGTS, vale-transporte, vale-refeição, plano de saúde, sindicato, pensão, empréstimo consignado ou outros descontos.
+- Motivo: esses valores compõem o holerite e já estão refletidos no líquido. Criá-los como novas entradas/despesas causaria dupla contagem.
+- Se houver 13º, férias ou adiantamento em documento separado, use igualmente o líquido daquele documento como um único item de entrada.
 
 NOTA FISCAL / CUPOM (uma loja só):
 - Aí sim pode juntar itens miúdos da mesma categoria.
