@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { ArrowLeftRight } from "lucide-react";
 import { toast } from "sonner";
 import { MonthHeader } from "@/components/month-header";
 import { PersonAvatar } from "@/components/person-avatar";
@@ -58,9 +59,15 @@ function ExtratoPage() {
 
   const rows = useMemo(() => {
     return monthTransactions(state, month, true)
-      .filter((t) => (txType === "all" ? true : t.type === txType))
+      .filter((t) => {
+        if (t.transferId) return txType === "all";
+        return txType === "all" ? true : t.type === txType;
+      })
       .filter((t) => (personId === "all" ? true : t.personId === personId))
-      .filter((t) => (category === "all" ? true : t.category === category))
+      .filter((t) => {
+        if (t.transferId) return category === "all";
+        return category === "all" ? true : t.category === category;
+      })
       .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
   }, [state, month, txType, personId, category]);
 
@@ -74,7 +81,9 @@ function ExtratoPage() {
     return [...map.entries()];
   }, [rows]);
 
-  const total = rows.reduce((acc, t) => acc + (t.type === "income" ? t.amount : -t.amount), 0);
+  const total = rows
+    .filter((t) => !t.transferId)
+    .reduce((acc, t) => acc + (t.type === "income" ? t.amount : -t.amount), 0);
   const catLabel = category === "all" ? null : categoryLabel(category, custom);
 
   function handleDelete(tx: Transaction) {
@@ -148,6 +157,7 @@ function ExtratoPage() {
               {list.map((t, i) => {
                 const person = personById(state.people, t.personId);
                 const account = (state.accounts ?? []).find((a) => a.id === t.accountId);
+                const transferAccount = (state.accounts ?? []).find((a) => a.id === t.transferAccountId);
                 const scheduled = t.status === "scheduled";
                 return (
                   <li key={t.id} className={i > 0 ? "border-t border-line" : ""}>
@@ -160,24 +170,37 @@ function ExtratoPage() {
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium">{t.merchant}</span>
                           <span className="block text-xs text-muted">
-                            {categoryLabel(t.category, custom)}
-                            {account ? ` · ${account.name}` : " · sem conta"}
-                            {t.installmentIndex
-                              ? ` · ${t.installmentIndex}/${t.installmentTotal}`
-                              : ""}
+                            {t.transferId ? (
+                              <>
+                                Transferência · {account?.name ?? "conta"} ↔ {transferAccount?.name ?? "outra conta"}
+                              </>
+                            ) : (
+                              <>
+                                {categoryLabel(t.category, custom)}
+                                {account ? ` · ${account.name}` : " · sem conta"}
+                                {t.installmentIndex ? ` · ${t.installmentIndex}/${t.installmentTotal}` : ""}
+                              </>
+                            )}
                             {scheduled ? " · agendado" : ""}
                           </span>
                         </span>
-                        <span
-                          className={cn(
-                            "font-display text-sm tabular-nums",
-                            t.type === "income" ? "text-income" : "text-fg",
-                            scheduled && "text-muted",
-                          )}
-                        >
-                          {t.type === "income" ? "+" : "−"}
-                          {formatBRL(t.amount)}
-                        </span>
+                        {t.transferId ? (
+                          <span className="inline-flex items-center gap-1 font-display text-sm tabular-nums text-primary">
+                            <ArrowLeftRight className="size-3.5" />
+                            {formatBRL(t.amount)}
+                          </span>
+                        ) : (
+                          <span
+                            className={cn(
+                              "font-display text-sm tabular-nums",
+                              t.type === "income" ? "text-income" : "text-fg",
+                              scheduled && "text-muted",
+                            )}
+                          >
+                            {t.type === "income" ? "+" : "−"}
+                            {formatBRL(t.amount)}
+                          </span>
+                        )}
                       </button>
                     </SwipeRow>
                   </li>
