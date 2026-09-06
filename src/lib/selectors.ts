@@ -46,18 +46,18 @@ export function accountBalance(state: FinanceState, account: Account) {
 }
 
 export function expensesOf(rows: Transaction[]) {
-  return rows.filter((t) => t.type === "expense");
+  return rows.filter((t) => t.type === "expense" && !t.transferId);
 }
 
 export function incomeOf(rows: Transaction[]) {
-  return rows.filter((t) => t.type === "income");
+  return rows.filter((t) => t.type === "income" && !t.transferId);
 }
 
 export function totalsForMonth(state: FinanceState, key: string) {
   const rows = monthTransactions(state, key);
   const income = sumBy(incomeOf(rows), (t) => t.amount);
   const expense = sumBy(expensesOf(rows), (t) => t.amount);
-  return { income, expense, balance: income - expense, count: rows.length };
+  return { income, expense, balance: income - expense, count: rows.filter((t) => !t.transferId).length };
 }
 
 export function spendByCategory(rows: Transaction[]) {
@@ -112,7 +112,11 @@ export function planProgress(state: FinanceState, planId: string) {
 export function committedFuture(state: FinanceState, fromIso: string) {
   return sumBy(
     state.transactions.filter(
-      (t) => t.type === "expense" && t.status === "scheduled" && t.date >= fromIso,
+      (t) =>
+        t.type === "expense" &&
+        !t.transferId &&
+        t.status === "scheduled" &&
+        t.date >= fromIso,
     ),
     (t) => t.amount,
   );
@@ -178,7 +182,7 @@ export function financialSnapshot(state: FinanceState, key: string): FinancialSn
   );
   const variableExpense = Math.max(0, postedExpense - essentialExpense);
   const installmentExpense = sumBy(
-    rows.filter((t) => t.type === "expense" && Boolean(t.installmentId)),
+    rows.filter((t) => t.type === "expense" && !t.transferId && Boolean(t.installmentId)),
     (t) => t.amount,
   );
   const margin = income - plannedOutflow;
@@ -240,7 +244,7 @@ export function financialSnapshot(state: FinanceState, key: string): FinancialSn
     status,
     suggestedSavings,
     recoveryTarget,
-    transactionCount: posted.length,
+    transactionCount: posted.filter((t) => !t.transferId).length,
     incomeCount: incomes.length,
   };
 }
