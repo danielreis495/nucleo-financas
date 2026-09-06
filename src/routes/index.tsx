@@ -36,7 +36,7 @@ function Home() {
   const committed = committedFuture(state, todayIso());
   const budgets = budgetUsage(state, month).filter((b) => b.used > 0).slice(0, 4);
   const recent = [...rows]
-    .filter((t) => t.type === "expense")
+    .filter((t) => t.type === "expense" && !t.transferId)
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 5);
   const overBudget = budgets.filter((b) => b.ratio > 1);
