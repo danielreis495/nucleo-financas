@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { Home, Receipt, ScanLine, Layers, Users } from "lucide-react";
+import { Home, Receipt, ScanLine, Sparkles, Users } from "lucide-react";
 import { Toaster } from "sonner";
 import { useFinanceStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const NAV: {
-  to: "/" | "/extrato" | "/captura" | "/parcelas" | "/casa";
+  to: "/" | "/extrato" | "/captura" | "/conselhos" | "/casa";
   label: string;
   icon: typeof Home;
   primary?: boolean;
@@ -14,7 +14,7 @@ const NAV: {
   { to: "/", label: "Início", icon: Home },
   { to: "/extrato", label: "Extrato", icon: Receipt },
   { to: "/captura", label: "Captura", icon: ScanLine, primary: true },
-  { to: "/parcelas", label: "Parcelas", icon: Layers },
+  { to: "/conselhos", label: "Consultor", icon: Sparkles },
   { to: "/casa", label: "Casa", icon: Users },
 ];
 
