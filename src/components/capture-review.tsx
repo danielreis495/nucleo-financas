@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { Check, Layers } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Check, Layers } from "lucide-react";
 import type { ExtractedItem } from "@/lib/types";
 import { categoryLabel } from "@/lib/categories";
+import { findDuplicateMatch } from "@/lib/integrity";
 import { formatBRL, formatShortDate } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { useFinanceStore } from "@/lib/store";
@@ -26,10 +27,33 @@ export function CaptureReview({
 }) {
   const people = useFinanceStore((s) => s.people);
   const accounts = useFinanceStore((s) => s.accounts ?? []);
+  const transactions = useFinanceStore((s) => s.transactions);
   const custom = useFinanceStore((s) => s.customCategories);
   const selectedCount = items.filter((i) => i.selected).length;
   const total = items.filter((i) => i.selected).reduce((a, i) => a + i.amount, 0);
   const [openId, setOpenId] = useState<string | null>(null);
+
+  const duplicateById = useMemo(
+    () => new Map(items.map((item) => [item.id, findDuplicateMatch(item, transactions, accountId)])),
+    [items, transactions, accountId],
+  );
+  const duplicateCount = [...duplicateById.values()].filter(Boolean).length;
+  const exactDuplicateCount = [...duplicateById.values()].filter((match) => match?.confidence === "exact").length;
+
+  useEffect(() => {
+    let changed = false;
+    const next = items.map((item) => {
+      const duplicate = findDuplicateMatch(item, transactions, accountId);
+      if (duplicate?.confidence === "exact" && item.selected) {
+        changed = true;
+        return { ...item, selected: false };
+      }
+      return item;
+    });
+    if (changed) onChange(next);
+    // Reavalia ao trocar a conta da importação. O usuário ainda pode remarcar manualmente depois.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId]);
 
   function patch(id: string, next: Partial<ExtractedItem>) {
     onChange(items.map((i) => (i.id === id ? { ...i, ...next } : i)));
@@ -38,7 +62,7 @@ export function CaptureReview({
   return (
     <div className="flex flex-1 flex-col">
       <header className="px-5 pt-6 pb-3">
-        <p className="text-xs font-medium tracking-wide text-muted uppercase">Conferir e tocar</p>
+        <p className="text-xs font-medium tracking-wide text-muted uppercase">Conferir e corrigir</p>
         <h1 className="font-display text-3xl tracking-tight">Encontrei {items.length}</h1>
         <p className="mt-1 text-sm text-muted">Toque na categoria ou na pessoa para trocar. Nada de teclado.</p>
 
@@ -71,12 +95,25 @@ export function CaptureReview({
         {accounts.length === 0 ? (
           <p className="mt-2 text-xs text-muted">Cadastre uma conta em Casa para vincular a importação.</p>
         ) : null}
+
+        {duplicateCount > 0 ? (
+          <div className="mt-3 flex gap-2 rounded-lg bg-warn-soft px-3 py-2 text-xs leading-relaxed text-warn">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <span>
+              {duplicateCount} lançamento{duplicateCount === 1 ? "" : "s"} parecido{duplicateCount === 1 ? "" : "s"} com o que já existe.
+              {exactDuplicateCount > 0
+                ? ` ${exactDuplicateCount} correspondência${exactDuplicateCount === 1 ? "" : "s"} exata${exactDuplicateCount === 1 ? "" : "s"} foi${exactDuplicateCount === 1 ? "" : "ram"} desmarcada${exactDuplicateCount === 1 ? "" : "s"}.`
+                : " Confira antes de lançar."}
+            </span>
+          </div>
+        ) : null}
       </header>
 
       <ul className="flex flex-1 flex-col gap-2 overflow-y-auto px-4 pb-4">
         {items.map((item) => {
           const person = people.find((p) => p.id === item.personId) ?? people[0];
           const open = openId === item.id;
+          const duplicate = duplicateById.get(item.id);
           return (
             <li
               key={item.id}
@@ -115,6 +152,19 @@ export function CaptureReview({
                     {item.description} · {formatShortDate(item.date)}
                   </p>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    {duplicate ? (
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium",
+                          duplicate.confidence === "exact"
+                            ? "bg-danger-soft text-danger"
+                            : "bg-warn-soft text-warn",
+                        )}
+                      >
+                        <AlertTriangle className="size-3" />
+                        {duplicate.confidence === "exact" ? "Já existe" : "Possível repetido"}
+                      </span>
+                    ) : null}
                     <span className="rounded-full bg-primary-soft px-2.5 py-1 text-xs font-medium text-primary">
                       {categoryLabel(item.category, custom)}
                     </span>
@@ -136,6 +186,13 @@ export function CaptureReview({
 
               {open ? (
                 <div className="mt-3 border-t border-line pt-3">
+                  {duplicate ? (
+                    <p className="mb-3 rounded-md bg-surface px-3 py-2 text-xs text-muted">
+                      {duplicate.confidence === "exact"
+                        ? "O Núcleo encontrou um lançamento com mesma data, valor, tipo, conta e descrição. Se for realmente uma compra diferente, você pode marcar novamente e lançar."
+                        : "Existe um lançamento muito parecido. Confira data, valor e estabelecimento antes de confirmar."}
+                    </p>
+                  ) : null}
                   <p className="mb-2 text-xs font-medium text-muted">Categoria</p>
                   <CategoryPicker
                     value={item.category}
