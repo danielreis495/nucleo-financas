@@ -16,6 +16,7 @@ type MovementLike = {
   date: string;
   type: "expense" | "income";
   nature?: TxNature;
+  natureLocked?: boolean;
   accountId?: string | null;
 };
 
@@ -42,6 +43,7 @@ export function countsInBudget(row: { nature?: TxNature }) {
 }
 
 export function inferMovementNature(row: MovementLike): TxNature {
+  if (row.natureLocked) return row.nature ?? "budget";
   if (row.nature && row.nature !== "budget") return row.nature;
   const text = textOf(row);
 
@@ -166,11 +168,11 @@ export function reconcileTransactionNatures(transactions: Transaction[]) {
 
   for (let i = 0; i < rows.length; i += 1) {
     const a = rows[i];
-    if (natureOf(a) !== "budget" || !transferLike(a)) continue;
+    if (a.natureLocked || natureOf(a) !== "budget" || !transferLike(a)) continue;
 
     for (let j = i + 1; j < rows.length; j += 1) {
       const b = rows[j];
-      if (natureOf(b) !== "budget" || !transferLike(b)) continue;
+      if (b.natureLocked || natureOf(b) !== "budget" || !transferLike(b)) continue;
       if (a.type === b.type || !sameAmount(a.amount, b.amount) || daysApart(a.date, b.date) > 3) continue;
 
       const shared = sharedIdentityTokens(a, b);
@@ -187,7 +189,7 @@ export function reconcileTransactionNatures(transactions: Transaction[]) {
 
   if (identitySeeds.size > 0) {
     for (const row of rows) {
-      if (natureOf(row) !== "budget" || !transferLike(row) || isBusinessText(row)) continue;
+      if (row.natureLocked || natureOf(row) !== "budget" || !transferLike(row) || isBusinessText(row)) continue;
       if (identityTokens(row).some((token) => identitySeeds.has(token))) row.nature = "transfer";
     }
   }
