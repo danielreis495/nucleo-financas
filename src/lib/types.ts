@@ -106,6 +106,7 @@ export type ExtractedItem = {
   date: string;
   type: TxType;
   nature?: TxNature;
+  natureLocked?: boolean;
   category: CategoryId;
   personId: string;
   selected: boolean;
