@@ -17,10 +17,16 @@ const ESSENTIAL_CATEGORIES = new Set<CategoryId>([
   "educacao",
 ]);
 
-export function monthTransactions(state: FinanceState, key: string, includeScheduled = false) {
+export function monthTransactions(
+  state: FinanceState,
+  key: string,
+  includeScheduled = false,
+  includeOutsideBudget = false,
+) {
   return state.transactions.filter((t) => {
     if (monthKey(t.date) !== key) return false;
     if (!includeScheduled && t.status === "scheduled") return false;
+    if (!includeOutsideBudget && !countsInBudget(t)) return false;
     return true;
   });
 }
@@ -56,10 +62,9 @@ export function incomeOf(rows: Transaction[]) {
 
 export function totalsForMonth(state: FinanceState, key: string) {
   const rows = monthTransactions(state, key);
-  const budgetRows = rows.filter(countsInBudget);
   const income = sumBy(incomeOf(rows), (t) => t.amount);
   const expense = sumBy(expensesOf(rows), (t) => t.amount);
-  return { income, expense, balance: income - expense, count: budgetRows.length };
+  return { income, expense, balance: income - expense, count: rows.length };
 }
 
 export function spendByCategory(rows: Transaction[]) {
@@ -169,7 +174,6 @@ export function financialSnapshot(state: FinanceState, key: string): FinancialSn
   const postedExpenses = expensesOf(posted);
   const scheduledExpenses = expensesOf(scheduled);
   const incomes = incomeOf(posted);
-  const postedBudget = posted.filter(countsInBudget);
 
   const income = sumBy(incomes, (t) => t.amount);
   const postedExpense = sumBy(postedExpenses, (t) => t.amount);
@@ -243,7 +247,7 @@ export function financialSnapshot(state: FinanceState, key: string): FinancialSn
     status,
     suggestedSavings,
     recoveryTarget,
-    transactionCount: postedBudget.length,
+    transactionCount: posted.length,
     incomeCount: incomes.length,
   };
 }
