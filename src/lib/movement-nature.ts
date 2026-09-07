@@ -58,8 +58,7 @@ export function inferMovementNature(row: MovementLike): TxNature {
     /\bpagamento de fatura\b/.test(text) ||
     /\bpagamento fatura\b/.test(text) ||
     /\bpag fatura\b/.test(text) ||
-    /\bpagto fatura\b/.test(text) ||
-    /\bpagamento recebido\b/.test(text)
+    /\bpagto fatura\b/.test(text)
   ) {
     return "card_payment";
   }
