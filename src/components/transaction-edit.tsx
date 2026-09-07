@@ -68,6 +68,7 @@ export function TransactionEdit({
             onChange={(next) =>
               update(live.id, {
                 ...next,
+                natureLocked: true,
                 category: next.nature === "budget" && next.type === "income" ? "salario" : live.category,
               })
             }
