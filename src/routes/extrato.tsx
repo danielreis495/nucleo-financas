@@ -61,7 +61,7 @@ function ExtratoPage() {
   const filterCats = [...expenseCats, ...incomeCats];
 
   const rows = useMemo(() => {
-    return monthTransactions(state, month, true)
+    return monthTransactions(state, month, true, true)
       .filter((t) => (txType === "all" ? true : t.type === txType))
       .filter((t) => {
         const nature = natureOf(t);
