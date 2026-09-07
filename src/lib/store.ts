@@ -15,9 +15,11 @@ import type {
   PersonColor,
   PersonRole,
   Transaction,
+  TxNature,
   TxSource,
 } from "./types";
 import { CATEGORIES } from "./categories";
+import { reconcileTransactionNatures } from "./movement-nature";
 import { createSeedState } from "./seed";
 import { uid, isoDate, todayIso, monthKey } from "./utils";
 
@@ -28,6 +30,8 @@ type FinanceActions = {
   setViewMonth: (key: string) => void;
   resetDemo: () => void;
   clearAll: () => void;
+  clearFinancialHistory: () => void;
+  reclassifyMovements: () => void;
   setHouseholdName: (name: string) => void;
   addPerson: (input: { name: string; role: PersonRole; color: PersonColor }) => void;
   updatePerson: (id: string, patch: Partial<Person>) => void;
@@ -98,6 +102,8 @@ function expandNewPlan(input: {
   category: CategoryId;
   currentIndex?: number;
   accountId?: string | null;
+  source?: TxSource;
+  nature?: TxNature;
 }): Transaction[] {
   const start = new Date(input.startDate + "T12:00:00");
   const today = todayIso();
@@ -116,6 +122,7 @@ function expandNewPlan(input: {
       merchant: input.merchant,
       amount: input.installmentAmount,
       type: "expense",
+      nature: input.nature ?? "budget",
       status: alreadyPaid || date <= today ? "posted" : "scheduled",
       category: input.category,
       personId: input.personId,
@@ -124,7 +131,7 @@ function expandNewPlan(input: {
       installmentId: input.id,
       installmentIndex: index,
       installmentTotal: input.totalCount,
-      source: "manual",
+      source: input.source ?? "manual",
       createdAt: new Date().toISOString(),
     });
   }
@@ -157,6 +164,10 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           geminiKey: get().geminiKey,
           customCategories: get().customCategories,
         }),
+      clearFinancialHistory: () =>
+        set({ transactions: [], plans: [], advice: null, demo: false }),
+      reclassifyMovements: () =>
+        set({ transactions: reconcileTransactionNatures(get().transactions), advice: null }),
       setHouseholdName: (householdName) => set({ householdName }),
       addPerson: ({ name, role, color }) =>
         set({
@@ -212,6 +223,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           merchant: description || "Lançamento",
           amount,
           type: "expense",
+          nature: "budget",
           status: "posted",
           category,
           personId,
@@ -228,12 +240,13 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
       updateTransaction: (id, patch) =>
         set({
           transactions: get().transactions.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+          advice: null,
         }),
       removeTransaction: (id) =>
-        set({ transactions: get().transactions.filter((t) => t.id !== id) }),
+        set({ transactions: get().transactions.filter((t) => t.id !== id), advice: null }),
       restoreTransaction: (tx) => {
         if (get().transactions.some((t) => t.id === tx.id)) return;
-        set({ transactions: [tx, ...get().transactions] });
+        set({ transactions: [tx, ...get().transactions], advice: null });
       },
       addCustomCategory: ({ label, group }) => {
         const trimmed = label.trim();
@@ -295,6 +308,8 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
                 category: item.category,
                 currentIndex: item.installment.current,
                 accountId,
+                source,
+                nature: "budget",
               }),
             );
           } else {
@@ -305,6 +320,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
               merchant: item.merchant,
               amount: item.amount,
               type: item.type,
+              nature: item.nature ?? "budget",
               status: "posted",
               category: item.category,
               personId: item.personId,
@@ -319,8 +335,9 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           }
         }
         set({
-          transactions: [...newTx, ...get().transactions],
+          transactions: reconcileTransactionNatures([...newTx, ...get().transactions]),
           plans: [...newPlans, ...get().plans],
+          advice: null,
           demo: false,
         });
       },
@@ -338,10 +355,11 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           category: input.category,
           account: input.account ?? "",
         };
-        const txs = expandNewPlan({ ...input, id });
+        const txs = expandNewPlan({ ...input, id, nature: "budget", source: "manual" });
         set({
           plans: [plan, ...get().plans],
           transactions: [...txs, ...get().transactions],
+          advice: null,
           demo: false,
         });
       },
@@ -362,10 +380,12 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
       skipHydration: true,
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<FinanceState & FinanceActions>;
+        const savedTransactions = Array.isArray(saved.transactions) ? saved.transactions : [];
         return {
           ...current,
           ...saved,
           accounts: Array.isArray(saved.accounts) ? saved.accounts : [],
+          transactions: reconcileTransactionNatures(savedTransactions),
         };
       },
       partialize: (s) => ({
