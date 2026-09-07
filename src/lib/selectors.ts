@@ -5,6 +5,7 @@ import type {
   Person,
   Transaction,
 } from "./types";
+import { countsInBudget } from "./movement-nature";
 import { monthKey } from "./utils";
 
 const ESSENTIAL_CATEGORIES = new Set<CategoryId>([
@@ -46,18 +47,19 @@ export function accountBalance(state: FinanceState, account: Account) {
 }
 
 export function expensesOf(rows: Transaction[]) {
-  return rows.filter((t) => t.type === "expense");
+  return rows.filter((t) => countsInBudget(t) && t.type === "expense");
 }
 
 export function incomeOf(rows: Transaction[]) {
-  return rows.filter((t) => t.type === "income");
+  return rows.filter((t) => countsInBudget(t) && t.type === "income");
 }
 
 export function totalsForMonth(state: FinanceState, key: string) {
   const rows = monthTransactions(state, key);
+  const budgetRows = rows.filter(countsInBudget);
   const income = sumBy(incomeOf(rows), (t) => t.amount);
   const expense = sumBy(expensesOf(rows), (t) => t.amount);
-  return { income, expense, balance: income - expense, count: rows.length };
+  return { income, expense, balance: income - expense, count: budgetRows.length };
 }
 
 export function spendByCategory(rows: Transaction[]) {
@@ -112,7 +114,7 @@ export function planProgress(state: FinanceState, planId: string) {
 export function committedFuture(state: FinanceState, fromIso: string) {
   return sumBy(
     state.transactions.filter(
-      (t) => t.type === "expense" && t.status === "scheduled" && t.date >= fromIso,
+      (t) => countsInBudget(t) && t.type === "expense" && t.status === "scheduled" && t.date >= fromIso,
     ),
     (t) => t.amount,
   );
@@ -167,6 +169,7 @@ export function financialSnapshot(state: FinanceState, key: string): FinancialSn
   const postedExpenses = expensesOf(posted);
   const scheduledExpenses = expensesOf(scheduled);
   const incomes = incomeOf(posted);
+  const postedBudget = posted.filter(countsInBudget);
 
   const income = sumBy(incomes, (t) => t.amount);
   const postedExpense = sumBy(postedExpenses, (t) => t.amount);
@@ -178,7 +181,7 @@ export function financialSnapshot(state: FinanceState, key: string): FinancialSn
   );
   const variableExpense = Math.max(0, postedExpense - essentialExpense);
   const installmentExpense = sumBy(
-    rows.filter((t) => t.type === "expense" && Boolean(t.installmentId)),
+    expensesOf(rows).filter((t) => Boolean(t.installmentId)),
     (t) => t.amount,
   );
   const margin = income - plannedOutflow;
@@ -240,7 +243,7 @@ export function financialSnapshot(state: FinanceState, key: string): FinancialSn
     status,
     suggestedSavings,
     recoveryTarget,
-    transactionCount: posted.length,
+    transactionCount: postedBudget.length,
     incomeCount: incomes.length,
   };
 }
