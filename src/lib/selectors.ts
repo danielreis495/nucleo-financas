@@ -5,6 +5,7 @@ import type {
   Person,
   Transaction,
 } from "./types";
+import { countsInBudget } from "./movement-nature";
 import { monthKey } from "./utils";
 
 const ESSENTIAL_CATEGORIES = new Set<CategoryId>([
@@ -16,10 +17,16 @@ const ESSENTIAL_CATEGORIES = new Set<CategoryId>([
   "educacao",
 ]);
 
-export function monthTransactions(state: FinanceState, key: string, includeScheduled = false) {
+export function monthTransactions(
+  state: FinanceState,
+  key: string,
+  includeScheduled = false,
+  includeOutsideBudget = false,
+) {
   return state.transactions.filter((t) => {
     if (monthKey(t.date) !== key) return false;
     if (!includeScheduled && t.status === "scheduled") return false;
+    if (!includeOutsideBudget && !countsInBudget(t)) return false;
     return true;
   });
 }
@@ -46,11 +53,11 @@ export function accountBalance(state: FinanceState, account: Account) {
 }
 
 export function expensesOf(rows: Transaction[]) {
-  return rows.filter((t) => t.type === "expense");
+  return rows.filter((t) => countsInBudget(t) && t.type === "expense");
 }
 
 export function incomeOf(rows: Transaction[]) {
-  return rows.filter((t) => t.type === "income");
+  return rows.filter((t) => countsInBudget(t) && t.type === "income");
 }
 
 export function totalsForMonth(state: FinanceState, key: string) {
@@ -112,7 +119,7 @@ export function planProgress(state: FinanceState, planId: string) {
 export function committedFuture(state: FinanceState, fromIso: string) {
   return sumBy(
     state.transactions.filter(
-      (t) => t.type === "expense" && t.status === "scheduled" && t.date >= fromIso,
+      (t) => countsInBudget(t) && t.type === "expense" && t.status === "scheduled" && t.date >= fromIso,
     ),
     (t) => t.amount,
   );
@@ -178,7 +185,7 @@ export function financialSnapshot(state: FinanceState, key: string): FinancialSn
   );
   const variableExpense = Math.max(0, postedExpense - essentialExpense);
   const installmentExpense = sumBy(
-    rows.filter((t) => t.type === "expense" && Boolean(t.installmentId)),
+    expensesOf(rows).filter((t) => Boolean(t.installmentId)),
     (t) => t.amount,
   );
   const margin = income - plannedOutflow;

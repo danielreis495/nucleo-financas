@@ -1,3 +1,4 @@
+import { classifyExtractedItems } from "./movement-nature";
 import type { ExtractedItem, Transaction } from "./types";
 
 export type DuplicateSummary = {
@@ -31,8 +32,9 @@ function sameAmount(a: number, b: number) {
 export function flagImportDuplicates(items: ExtractedItem[], transactions: Transaction[]) {
   let possibleCount = 0;
   let exactCount = 0;
+  const classifiedItems = classifyExtractedItems(items);
 
-  const checkedItems = items.map((item) => {
+  const checkedItems = classifiedItems.map((item) => {
     let possible = false;
     let exact = false;
 

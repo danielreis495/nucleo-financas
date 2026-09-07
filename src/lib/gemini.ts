@@ -1,6 +1,6 @@
 import { CATEGORIES } from "./categories";
 import { parseLooseAmount } from "./money";
-import type { AdviceItem, CategoryId, ExtractedItem, InstallmentKind, TxType } from "./types";
+import type { AdviceItem, CategoryId, ExtractedItem, InstallmentKind, TxNature, TxType } from "./types";
 import { uid } from "./utils";
 
 const CATEGORY_IDS = CATEGORIES.map((c) => c.id).join(", ");
@@ -91,6 +91,19 @@ function asCategory(value: unknown): CategoryId {
 
 function asType(value: unknown): TxType {
   return value === "income" ? "income" : "expense";
+}
+
+function asNature(value: unknown): TxNature {
+  if (
+    value === "transfer" ||
+    value === "investment" ||
+    value === "card_payment" ||
+    value === "financing" ||
+    value === "neutral"
+  ) {
+    return value;
+  }
+  return "budget";
 }
 
 function asKind(value: unknown): InstallmentKind {
@@ -242,16 +255,17 @@ export async function extractWithGemini(data: ExtractPayload): Promise<
   }
 
   const peopleList = data.people.map((p) => `${p.name} (${p.id}, ${p.role})`).join("; ");
-  const system = `Você extrai lançamentos de documentos financeiros brasileiros: fatura de cartão, extrato, boleto, NF, planilha, holerite, contracheque e demonstrativo de pagamento.
+  const system = `Você extrai lançamentos de documentos financeiros brasileiros: fatura de cartão, extrato bancário, boleto, NF, planilha, holerite, contracheque e demonstrativo de pagamento.
 Responda APENAS um JSON válido, sem markdown:
 {
   "items": [
     {
-      "description": "string curta",
+      "description": "string curta mas reconhecível",
       "merchant": "string",
       "amount": number,
       "date": "YYYY-MM-DD",
       "type": "expense" | "income",
+      "nature": "budget" | "transfer" | "investment" | "card_payment" | "financing" | "neutral",
       "category": one of [${CATEGORY_IDS}],
       "personId": "id da pessoa ou ${data.defaultPersonId}",
       "installment": null | { "current": number, "total": number, "kind": "card" | "loan" | "other" }
@@ -259,21 +273,42 @@ Responda APENAS um JSON válido, sem markdown:
   ]
 }
 
+NATUREZA FINANCEIRA — REGRA OBRIGATÓRIA:
+- "budget": compra, conta, boleto de consumo, salário, remuneração, reembolso ou outro valor que realmente aumenta renda ou representa gasto do orçamento.
+- "transfer": dinheiro movido entre contas do mesmo titular ou entre pessoas da própria casa. Não é renda nem gasto novo.
+- "investment": aplicação, aporte, resgate de investimento, RDB, cofrinho ou equivalente. Não é renda nem gasto de consumo.
+- "card_payment": pagamento/quitacão de fatura de cartão. A despesa já está nas compras da fatura; não conte de novo.
+- "financing": dinheiro que entrou por empréstimo, crédito contratado, Pix no Crédito ou valor adicionado por cartão. Não é renda.
+- "neutral": saldo do dia, saldo em conta, limite, totalizadores e linhas técnicas que não deveriam afetar orçamento.
+- NÃO marque todo Pix como transferência. Pix para loja, fornecedor, restaurante, pessoa de fora da casa ou prestador é gasto "budget". Pix recebido de cliente/terceiro pode ser entrada "budget".
+
 FATURA / EXTRATO DE CARTÃO (Nubank, Inter, Itaú, C6, Bradesco, Santander, PicPay, etc.):
 - UM item para CADA compra da lista de lançamentos.
 - NÃO junte compras. NÃO use o total da fatura como um único gasto.
-- Ignore: pagamento recebido, valor total, saldo anterior, limite, vencimento, rotativo, encargo, IOF isolado, anuidade se for zero, publicidade.
+- Ignore: pagamento recebido, valor total, saldo anterior, limite, vencimento, rotativo, encargo informativo, IOF isolado meramente informativo, anuidade se for zero, publicidade.
+- Para compras e parcelas da fatura: nature = "budget".
 - Data da compra (não a do vencimento). Formato no PDF costuma ser DD/MM ou DD/MM/AA → converta para YYYY-MM-DD. Ano de referência: ${data.today.slice(0, 4)}.
 - amount é o valor daquela linha, em reais com ponto decimal (32,90 → 32.9).
 - Parcela na linha (ex.: 03/10, 3/12, 10x): installment.current/total, kind "card", amount = valor da parcela.
-- Estorno / crédito na fatura: type "income".
-- Pix, TED e boleto no extrato: cada um é um item.
+- Estorno / crédito na fatura: type = "income", nature = "budget".
+
+EXTRATO DE CONTA / CSV BANCÁRIO:
+- Retorne os lançamentos reais, mas diferencie orçamento de mera movimentação financeira.
+- Salário, "PAGTO SALARIO", "REMUNERACAO/SALARIO" e pagamentos de terceiros: type = "income", nature = "budget".
+- Compra, Pix para comércio/pessoa de fora da casa, boleto de energia/seguro/serviço e tarifas reais: type = "expense", nature = "budget".
+- Transferência recebida ou enviada para o MESMO TITULAR do extrato, ou para outra conta claramente pertencente a uma pessoa cadastrada da casa: nature = "transfer". Preserve no merchant/description o nome do remetente/favorecido para permitir conferência.
+- "Aplicação RDB", "Aplicação Cofrinhos", aportes: type = "expense", nature = "investment".
+- "Resgate RDB", resgate de cofrinho/investimento: type = "income", nature = "investment".
+- "Pagamento de fatura": type = "expense", nature = "card_payment".
+- "Valor adicionado na conta por cartão de crédito", "Pix no Crédito", empréstimo recebido: type = "income", nature = "financing".
+- "SALDO DO DIA", saldo em conta, limite utilizado/disponível e totalizadores: nature = "neutral"; prefira não retornar essas linhas.
+- Se houver um crédito técnico e um débito de mesmo valor para viabilizar uma compra no crédito, o crédito técnico é "financing" e o débito da compra continua "budget".
 
 HOLERITE / CONTRACHEQUE / DEMONSTRATIVO DE PAGAMENTO (inclusive holerite disponibilizado pelo Itaú):
 - Trate como folha salarial, NÃO como extrato bancário.
 - Retorne EXATAMENTE UM item representando o valor líquido efetivamente recebido pelo trabalhador.
 - amount = "líquido a receber", "salário líquido", "valor líquido" ou equivalente. NUNCA use salário bruto/total de proventos como amount.
-- type = "income" e category = "salario".
+- type = "income", nature = "budget" e category = "salario".
 - merchant = nome da empresa/empregador. Não use "Itaú" como merchant se o empregador estiver identificado.
 - description = "Salário líquido" seguido da competência quando ela estiver visível, por exemplo "Salário líquido 08/2026".
 - date = data de pagamento/crédito quando estiver impressa. Se só houver competência MM/AAAA, use o último dia daquele mês como data de referência.
@@ -285,6 +320,7 @@ HOLERITE / CONTRACHEQUE / DEMONSTRATIVO DE PAGAMENTO (inclusive holerite disponi
 
 NOTA FISCAL / CUPOM (uma loja só):
 - Aí sim pode juntar itens miúdos da mesma categoria.
+- nature = "budget".
 
 Geral:
 - personId só se o nome aparecer; senão ${data.defaultPersonId}.
@@ -318,6 +354,7 @@ Geral:
           amount: asAmount(row.amount),
           date: asDate(row.date, data.today),
           type: asType(row.type),
+          nature: asNature(row.nature),
           category: asCategory(row.category),
           personId: data.people.some((p) => p.id === row.personId)
             ? String(row.personId)

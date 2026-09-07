@@ -6,6 +6,7 @@ import { PersonAvatar } from "@/components/person-avatar";
 import { SwipeRow } from "@/components/swipe-row";
 import { TransactionEdit } from "@/components/transaction-edit";
 import { categoriesFor, categoryLabel } from "@/lib/categories";
+import { NATURE_LABEL, natureOf } from "@/lib/movement-nature";
 import { formatBRL, formatLongDate } from "@/lib/money";
 import { monthTransactions, personById } from "@/lib/selectors";
 import { useFinanceStore } from "@/lib/store";
@@ -17,6 +18,8 @@ type ExtratoSearch = {
   person?: string;
   type?: "expense" | "income";
 };
+
+type ScopeFilter = "all" | "budget" | "excluded";
 
 export const Route = createFileRoute("/extrato")({
   validateSearch: (search: Record<string, unknown>): ExtratoSearch => ({
@@ -38,6 +41,7 @@ function ExtratoPage() {
   const [personId, setPersonId] = useState<string | "all">(person ?? "all");
   const [category, setCategory] = useState<CategoryId | "all">(cat ?? "all");
   const [txType, setTxType] = useState<Transaction["type"] | "all">(type ?? "all");
+  const [scope, setScope] = useState<ScopeFilter>("all");
   const [editing, setEditing] = useState<Transaction | null>(null);
 
   useEffect(() => {
@@ -57,12 +61,18 @@ function ExtratoPage() {
   const filterCats = [...expenseCats, ...incomeCats];
 
   const rows = useMemo(() => {
-    return monthTransactions(state, month, true)
+    return monthTransactions(state, month, true, true)
       .filter((t) => (txType === "all" ? true : t.type === txType))
+      .filter((t) => {
+        const nature = natureOf(t);
+        if (scope === "budget") return nature === "budget";
+        if (scope === "excluded") return nature !== "budget";
+        return true;
+      })
       .filter((t) => (personId === "all" ? true : t.personId === personId))
       .filter((t) => (category === "all" ? true : t.category === category))
       .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
-  }, [state, month, txType, personId, category]);
+  }, [state, month, txType, scope, personId, category]);
 
   const groups = useMemo(() => {
     const map = new Map<string, typeof rows>();
@@ -102,6 +112,18 @@ function ExtratoPage() {
           </p>
         </div>
       ) : null}
+
+      <div className="flex gap-2 overflow-x-auto px-5 pb-2">
+        <FilterChip active={scope === "all"} onClick={() => setScope("all")}>
+          Todos
+        </FilterChip>
+        <FilterChip active={scope === "budget"} onClick={() => setScope("budget")}>
+          Orçamento
+        </FilterChip>
+        <FilterChip active={scope === "excluded"} onClick={() => setScope("excluded")}>
+          Fora do orçamento
+        </FilterChip>
+      </div>
 
       <div className="flex gap-2 overflow-x-auto px-5 pb-2">
         <FilterChip active={txType === "all"} onClick={() => setTxType("all")}>
@@ -149,6 +171,8 @@ function ExtratoPage() {
                 const person = personById(state.people, t.personId);
                 const account = (state.accounts ?? []).find((a) => a.id === t.accountId);
                 const scheduled = t.status === "scheduled";
+                const nature = natureOf(t);
+                const classification = nature === "budget" ? categoryLabel(t.category, custom) : NATURE_LABEL[nature];
                 return (
                   <li key={t.id} className={i > 0 ? "border-t border-line" : ""}>
                     <SwipeRow onDelete={() => handleDelete(t)}>
@@ -160,7 +184,7 @@ function ExtratoPage() {
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium">{t.merchant}</span>
                           <span className="block text-xs text-muted">
-                            {categoryLabel(t.category, custom)}
+                            {classification}
                             {account ? ` · ${account.name}` : " · sem conta"}
                             {t.installmentIndex
                               ? ` · ${t.installmentIndex}/${t.installmentTotal}`
@@ -172,6 +196,7 @@ function ExtratoPage() {
                           className={cn(
                             "font-display text-sm tabular-nums",
                             t.type === "income" ? "text-income" : "text-fg",
+                            nature !== "budget" && "text-muted",
                             scheduled && "text-muted",
                           )}
                         >

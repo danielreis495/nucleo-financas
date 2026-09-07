@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { CategoryPicker } from "@/components/category-picker";
+import { MovementKindPicker } from "@/components/movement-kind-picker";
 import { PersonAvatar } from "@/components/person-avatar";
 import { Button } from "@/components/ui/button";
+import { natureOf } from "@/lib/movement-nature";
 import { formatBRL, parseLooseAmount } from "@/lib/money";
 import { useFinanceStore } from "@/lib/store";
-import type { Transaction, TxType } from "@/lib/types";
+import type { Transaction } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function TransactionEdit({
@@ -41,12 +43,7 @@ export function TransactionEdit({
     });
   }
 
-  function setType(type: TxType) {
-    update(live.id, {
-      type,
-      category: type === "income" && live.type !== "income" ? "salario" : live.category,
-    });
-  }
+  const nature = natureOf(live);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
@@ -64,28 +61,18 @@ export function TransactionEdit({
           <p className="text-xs font-medium tracking-wide text-muted uppercase">Editar lançamento</p>
           <p className="mt-1 font-display text-2xl tabular-nums">{formatBRL(live.amount)}</p>
 
-          <div className="mt-4 grid grid-cols-2 gap-1.5">
-            <button
-              type="button"
-              onClick={() => setType("expense")}
-              className={cn(
-                "h-9 rounded-full text-xs font-medium",
-                live.type === "expense" ? "bg-primary text-primary-fg" : "bg-line",
-              )}
-            >
-              Gasto
-            </button>
-            <button
-              type="button"
-              onClick={() => setType("income")}
-              className={cn(
-                "h-9 rounded-full text-xs font-medium",
-                live.type === "income" ? "bg-primary text-primary-fg" : "bg-line",
-              )}
-            >
-              Entrada
-            </button>
-          </div>
+          <p className="mt-4 mb-2 text-xs font-medium text-muted">Como entra no orçamento</p>
+          <MovementKindPicker
+            type={live.type}
+            nature={live.nature}
+            onChange={(next) =>
+              update(live.id, {
+                ...next,
+                natureLocked: true,
+                category: next.nature === "budget" && next.type === "income" ? "salario" : live.category,
+              })
+            }
+          />
 
           <label className="mt-4 block text-xs font-medium text-muted">Nome / loja</label>
           <input
@@ -122,12 +109,16 @@ export function TransactionEdit({
             </div>
           </div>
 
-          <p className="mt-4 mb-2 text-xs font-medium text-muted">Categoria</p>
-          <CategoryPicker
-            value={live.category}
-            group={live.type === "income" ? "entrada" : "gasto"}
-            onChange={(id) => update(live.id, { category: id })}
-          />
+          {nature === "budget" ? (
+            <>
+              <p className="mt-4 mb-2 text-xs font-medium text-muted">Categoria</p>
+              <CategoryPicker
+                value={live.category}
+                group={live.type === "income" ? "entrada" : "gasto"}
+                onChange={(id) => update(live.id, { category: id })}
+              />
+            </>
+          ) : null}
 
           <p className="mt-4 mb-2 text-xs font-medium text-muted">Conta</p>
           <div className="mb-1 flex flex-wrap gap-1.5">

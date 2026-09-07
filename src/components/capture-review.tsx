@@ -2,11 +2,13 @@ import { useState } from "react";
 import { Check, Layers } from "lucide-react";
 import type { ExtractedItem } from "@/lib/types";
 import { categoryLabel } from "@/lib/categories";
+import { NATURE_LABEL, natureOf } from "@/lib/movement-nature";
 import { formatBRL, formatShortDate } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { useFinanceStore } from "@/lib/store";
 import { PersonAvatar } from "./person-avatar";
 import { CategoryPicker } from "./category-picker";
+import { MovementKindPicker } from "./movement-kind-picker";
 import { Button } from "./ui/button";
 
 export function CaptureReview({
@@ -29,8 +31,10 @@ export function CaptureReview({
   const people = useFinanceStore((s) => s.people);
   const accounts = useFinanceStore((s) => s.accounts ?? []);
   const custom = useFinanceStore((s) => s.customCategories);
-  const selectedCount = items.filter((i) => i.selected).length;
-  const total = items.filter((i) => i.selected).reduce((a, i) => a + i.amount, 0);
+  const selected = items.filter((i) => i.selected);
+  const selectedCount = selected.length;
+  const excludedCount = selected.filter((i) => natureOf(i) !== "budget").length;
+  const total = selected.reduce((a, i) => a + i.amount, 0);
   const [openId, setOpenId] = useState<string | null>(null);
 
   function patch(id: string, next: Partial<ExtractedItem>) {
@@ -49,7 +53,9 @@ export function CaptureReview({
       <header className="px-5 pt-6 pb-3">
         <p className="text-xs font-medium tracking-wide text-muted uppercase">Conferir e tocar</p>
         <h1 className="font-display text-3xl tracking-tight">Encontrei {items.length}</h1>
-        <p className="mt-1 text-sm text-muted">Toque na categoria ou na pessoa para trocar. Nada de teclado.</p>
+        <p className="mt-1 text-sm text-muted">
+          Confira o tipo financeiro. Transferências, investimentos e pagamento de fatura não entram como gasto ou renda.
+        </p>
 
         {duplicateSummary && duplicateSummary.possibleCount > 0 ? (
           <div className="mt-4 rounded-lg bg-warn-soft px-3 py-2.5 text-sm text-warn">
@@ -97,6 +103,7 @@ export function CaptureReview({
         {items.map((item) => {
           const person = people.find((p) => p.id === item.personId) ?? people[0];
           const open = openId === item.id;
+          const nature = natureOf(item);
           return (
             <li
               key={item.id}
@@ -135,9 +142,15 @@ export function CaptureReview({
                     {item.description} · {formatShortDate(item.date)}
                   </p>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <span className="rounded-full bg-primary-soft px-2.5 py-1 text-xs font-medium text-primary">
-                      {categoryLabel(item.category, custom)}
-                    </span>
+                    {nature === "budget" ? (
+                      <span className="rounded-full bg-primary-soft px-2.5 py-1 text-xs font-medium text-primary">
+                        {categoryLabel(item.category, custom)}
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-line px-2.5 py-1 text-xs font-medium text-fg">
+                        {NATURE_LABEL[nature]}
+                      </span>
+                    )}
                     {person ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-line px-2 py-1 text-xs font-medium">
                         <PersonAvatar person={person} size="sm" />
@@ -156,12 +169,30 @@ export function CaptureReview({
 
               {open ? (
                 <div className="mt-3 border-t border-line pt-3">
-                  <p className="mb-2 text-xs font-medium text-muted">Categoria</p>
-                  <CategoryPicker
-                    value={item.category}
-                    group={item.type === "income" ? "entrada" : "gasto"}
-                    onChange={(id) => patch(item.id, { category: id })}
+                  <p className="mb-2 text-xs font-medium text-muted">Como entra no orçamento</p>
+                  <MovementKindPicker
+                    type={item.type}
+                    nature={item.nature}
+                    onChange={(next) =>
+                      patch(item.id, {
+                        ...next,
+                        natureLocked: true,
+                        category: next.nature === "budget" && next.type === "income" ? "salario" : item.category,
+                      })
+                    }
                   />
+
+                  {nature === "budget" ? (
+                    <>
+                      <p className="mt-3 mb-2 text-xs font-medium text-muted">Categoria</p>
+                      <CategoryPicker
+                        value={item.category}
+                        group={item.type === "income" ? "entrada" : "gasto"}
+                        onChange={(id) => patch(item.id, { category: id })}
+                      />
+                    </>
+                  ) : null}
+
                   <p className="mt-3 mb-2 text-xs font-medium text-muted">Quem</p>
                   <div className="flex flex-wrap gap-1.5">
                     {people.map((p) => (
@@ -186,8 +217,10 @@ export function CaptureReview({
       </ul>
 
       <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 border-t border-line bg-elevated/95 px-4 py-3 backdrop-blur-md">
-        <div className="mb-2 flex items-center justify-between text-sm">
-          <span className="text-muted">{selectedCount} selecionados</span>
+        <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+          <span className="text-muted">
+            {selectedCount} selecionados{excludedCount > 0 ? ` · ${excludedCount} fora do orçamento` : ""}
+          </span>
           <span className="font-display text-lg tabular-nums">{formatBRL(total)}</span>
         </div>
         <div className="grid grid-cols-[1fr_1.6fr] gap-2">
