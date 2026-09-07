@@ -33,6 +33,7 @@ export type CustomCategory = {
 };
 
 export type TxType = "expense" | "income";
+export type TxNature = "budget" | "transfer" | "investment" | "card_payment" | "financing" | "neutral";
 export type TxStatus = "posted" | "scheduled";
 export type TxSource = "manual" | "photo" | "pdf" | "sheet" | "seed";
 export type InstallmentKind = "card" | "loan" | "other";
@@ -49,6 +50,7 @@ export type Transaction = {
   merchant: string;
   amount: number;
   type: TxType;
+  nature?: TxNature;
   status: TxStatus;
   category: CategoryId;
   personId: string;
@@ -102,6 +104,7 @@ export type ExtractedItem = {
   amount: number;
   date: string;
   type: TxType;
+  nature?: TxNature;
   category: CategoryId;
   personId: string;
   selected: boolean;
