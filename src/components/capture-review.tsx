@@ -176,6 +176,7 @@ export function CaptureReview({
                     onChange={(next) =>
                       patch(item.id, {
                         ...next,
+                        natureLocked: true,
                         category: next.nature === "budget" && next.type === "income" ? "salario" : item.category,
                       })
                     }
