@@ -51,6 +51,7 @@ export type Transaction = {
   amount: number;
   type: TxType;
   nature?: TxNature;
+  natureLocked?: boolean;
   status: TxStatus;
   category: CategoryId;
   personId: string;
