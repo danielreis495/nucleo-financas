@@ -19,7 +19,7 @@ import type {
   TxSource,
 } from "./types";
 import { CATEGORIES } from "./categories";
-import { reconcileTransactionNatures } from "./movement-nature";
+import { natureOf, reconcileTransactionNatures } from "./movement-nature";
 import { createSeedState } from "./seed";
 import { uid, isoDate, todayIso, monthKey } from "./utils";
 
@@ -104,6 +104,7 @@ function expandNewPlan(input: {
   accountId?: string | null;
   source?: TxSource;
   nature?: TxNature;
+  natureLocked?: boolean;
 }): Transaction[] {
   const start = new Date(input.startDate + "T12:00:00");
   const today = todayIso();
@@ -123,6 +124,7 @@ function expandNewPlan(input: {
       amount: input.installmentAmount,
       type: "expense",
       nature: input.nature ?? "budget",
+      natureLocked: input.natureLocked,
       status: alreadyPaid || date <= today ? "posted" : "scheduled",
       category: input.category,
       personId: input.personId,
@@ -279,7 +281,8 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         const newPlans: FinanceState["plans"] = [];
         const newTx: Transaction[] = [];
         for (const item of selected) {
-          if (item.installment && item.installment.total > 1) {
+          const nature = natureOf(item);
+          if (item.installment && item.installment.total > 1 && nature === "budget") {
             const planId = uid();
             const start = new Date(item.date + "T12:00:00");
             start.setMonth(start.getMonth() - (item.installment.current - 1));
@@ -309,7 +312,8 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
                 currentIndex: item.installment.current,
                 accountId,
                 source,
-                nature: "budget",
+                nature,
+                natureLocked: item.natureLocked,
               }),
             );
           } else {
@@ -320,7 +324,8 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
               merchant: item.merchant,
               amount: item.amount,
               type: item.type,
-              nature: item.nature ?? "budget",
+              nature,
+              natureLocked: item.natureLocked,
               status: "posted",
               category: item.category,
               personId: item.personId,
