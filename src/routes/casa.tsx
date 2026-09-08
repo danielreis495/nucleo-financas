@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { PersonAvatar, personColorClass } from "@/components/person-avatar";
 import { AccountsCard } from "@/components/accounts-card";
 import { Button } from "@/components/ui/button";
+import { useDocumentStore } from "@/lib/document-store";
 import { formatBRL, formatBRLCompact } from "@/lib/money";
 import { monthTransactions, spendByPerson } from "@/lib/selectors";
 import { useFinanceStore } from "@/lib/store";
@@ -22,6 +23,7 @@ const ROLES: { id: PersonRole; label: string }[] = [
 
 const COLORS: PersonColor[] = ["p1", "p2", "p3", "p4", "p5"];
 const STORAGE_KEY = "nucleo-finance-v1";
+const IMPORT_FINGERPRINTS_KEY = "nucleo-import-fingerprints-v1";
 const BACKUP_VERSION = 1;
 
 type BackupFile = {
@@ -114,6 +116,7 @@ function CasaPage() {
   const clearAll = useFinanceStore((s) => s.clearAll);
   const clearFinancialHistory = useFinanceStore((s) => s.clearFinancialHistory);
   const reclassifyMovements = useFinanceStore((s) => s.reclassifyMovements);
+  const clearSummaries = useDocumentStore((s) => s.clearSummaries);
 
   const [name, setName] = useState("");
   const [role, setRole] = useState<PersonRole>("partner");
@@ -235,7 +238,7 @@ function CasaPage() {
       <section className="mt-6 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
         <h2 className="font-display text-xl">Corrigir importações</h2>
         <p className="mt-1 text-sm text-muted">
-          Transferências entre suas contas, aplicações, resgates e pagamento de fatura ficam fora do orçamento. Você pode revisar o histórico atual ou limpar só os dados financeiros para reenviar os arquivos.
+          Transferências entre suas contas, aplicações, resgates e pagamento de fatura ficam fora do orçamento. Você pode revisar o histórico atual ou fazer uma limpeza completa da camada financeira para reenviar os arquivos.
         </p>
         <div className="mt-4 flex flex-col gap-2">
           <Button
@@ -252,11 +255,13 @@ function CasaPage() {
             className="text-danger"
             onClick={() => {
               const ok = window.confirm(
-                "Apagar todos os lançamentos e parcelamentos para reimportar? Pessoas, contas, categorias e chave do Gemini serão mantidas.",
+                "Apagar lançamentos, parcelamentos, saldos/faturas lidos e histórico de arquivos para reimportar? Pessoas, contas, categorias e chave do Gemini serão mantidas.",
               );
               if (!ok) return;
               clearFinancialHistory();
-              toast.success("Histórico financeiro limpo. Você já pode reenviar os arquivos.");
+              clearSummaries();
+              localStorage.removeItem(IMPORT_FINGERPRINTS_KEY);
+              toast.success("Importações financeiras zeradas por completo. Você já pode reenviar os arquivos.");
             }}
           >
             Limpar lançamentos para reimportar
@@ -302,6 +307,8 @@ function CasaPage() {
           className="text-danger"
           onClick={() => {
             clearAll();
+            clearSummaries();
+            localStorage.removeItem(IMPORT_FINGERPRINTS_KEY);
             toast.success("Casa zerada");
           }}
         >
