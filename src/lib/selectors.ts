@@ -5,7 +5,7 @@ import type {
   Person,
   Transaction,
 } from "./types";
-import { countsInBudget } from "./movement-nature";
+import { countsInBudget, isExpenseRefund } from "./movement-nature";
 import { monthKey } from "./utils";
 
 const ESSENTIAL_CATEGORIES = new Set<CategoryId>([
@@ -56,14 +56,25 @@ export function expensesOf(rows: Transaction[]) {
   return rows.filter((t) => countsInBudget(t) && t.type === "expense");
 }
 
+export function refundsOf(rows: Transaction[]) {
+  return rows.filter((t) => countsInBudget(t) && t.type === "income" && isExpenseRefund(t));
+}
+
 export function incomeOf(rows: Transaction[]) {
-  return rows.filter((t) => countsInBudget(t) && t.type === "income");
+  return rows.filter((t) => countsInBudget(t) && t.type === "income" && !isExpenseRefund(t));
+}
+
+function netExpense(rows: Transaction[]) {
+  return Math.max(
+    0,
+    sumBy(expensesOf(rows), (t) => t.amount) - sumBy(refundsOf(rows), (t) => t.amount),
+  );
 }
 
 export function totalsForMonth(state: FinanceState, key: string) {
   const rows = monthTransactions(state, key);
   const income = sumBy(incomeOf(rows), (t) => t.amount);
-  const expense = sumBy(expensesOf(rows), (t) => t.amount);
+  const expense = netExpense(rows);
   return { income, expense, balance: income - expense, count: rows.length };
 }
 
@@ -72,20 +83,28 @@ export function spendByCategory(rows: Transaction[]) {
   for (const t of expensesOf(rows)) {
     map.set(t.category, (map.get(t.category) ?? 0) + t.amount);
   }
+  for (const t of refundsOf(rows)) {
+    map.set(t.category, (map.get(t.category) ?? 0) - t.amount);
+  }
   return [...map.entries()]
-    .map(([category, amount]) => ({ category, amount }))
+    .map(([category, amount]) => ({ category, amount: Math.max(0, amount) }))
+    .filter((row) => row.amount > 0)
     .sort((a, b) => b.amount - a.amount);
 }
 
 export function spendByPerson(rows: Transaction[], people: Person[]) {
   return people
-    .map((person) => ({
-      person,
-      amount: sumBy(
+    .map((person) => {
+      const expenses = sumBy(
         expensesOf(rows).filter((t) => t.personId === person.id),
         (t) => t.amount,
-      ),
-    }))
+      );
+      const refunds = sumBy(
+        refundsOf(rows).filter((t) => t.personId === person.id),
+        (t) => t.amount,
+      );
+      return { person, amount: Math.max(0, expenses - refunds) };
+    })
     .sort((a, b) => b.amount - a.amount);
 }
 
@@ -97,7 +116,11 @@ export function dailySpend(rows: Transaction[], key: string) {
     const day = Number(t.date.slice(8, 10));
     if (day >= 1 && day <= days) buckets[day - 1] += t.amount;
   }
-  return buckets;
+  for (const t of refundsOf(rows)) {
+    const day = Number(t.date.slice(8, 10));
+    if (day >= 1 && day <= days) buckets[day - 1] -= t.amount;
+  }
+  return buckets.map((value) => Math.max(0, value));
 }
 
 export function upcomingInstallments(state: FinanceState, fromIso: string, limit = 8) {
@@ -173,15 +196,21 @@ export function financialSnapshot(state: FinanceState, key: string): FinancialSn
   const scheduled = rows.filter((t) => t.status === "scheduled");
   const postedExpenses = expensesOf(posted);
   const scheduledExpenses = expensesOf(scheduled);
+  const postedRefunds = refundsOf(posted);
   const incomes = incomeOf(posted);
 
   const income = sumBy(incomes, (t) => t.amount);
-  const postedExpense = sumBy(postedExpenses, (t) => t.amount);
+  const postedExpense = Math.max(
+    0,
+    sumBy(postedExpenses, (t) => t.amount) - sumBy(postedRefunds, (t) => t.amount),
+  );
   const scheduledExpense = sumBy(scheduledExpenses, (t) => t.amount);
   const plannedOutflow = postedExpense + scheduledExpense;
+
+  const postedByCategory = spendByCategory(posted);
   const essentialExpense = sumBy(
-    postedExpenses.filter((t) => ESSENTIAL_CATEGORIES.has(t.category)),
-    (t) => t.amount,
+    postedByCategory.filter((row) => ESSENTIAL_CATEGORIES.has(row.category)),
+    (row) => row.amount,
   );
   const variableExpense = Math.max(0, postedExpense - essentialExpense);
   const installmentExpense = sumBy(

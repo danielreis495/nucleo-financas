@@ -42,6 +42,23 @@ export function countsInBudget(row: { nature?: TxNature }) {
   return natureOf(row) === "budget";
 }
 
+export function isExpenseRefund(
+  row: Pick<MovementLike, "merchant" | "description" | "type" | "nature">,
+) {
+  if (natureOf(row) !== "budget") return false;
+  const text = textOf(row);
+  return (
+    /\bestorno\b/.test(text) ||
+    /\breembolso\b/.test(text) ||
+    /\bcashback\b/.test(text) ||
+    /\bdevolucao\b/.test(text) ||
+    /\bcredito (?:de|da) compra\b/.test(text) ||
+    /\bcredito (?:na|da) fatura\b/.test(text) ||
+    /\bajuste a credito\b/.test(text) ||
+    /\bcompra cancelada\b/.test(text)
+  );
+}
+
 export function inferMovementNature(row: MovementLike): TxNature {
   if (row.natureLocked) return row.nature ?? "budget";
   if (row.nature && row.nature !== "budget") return row.nature;
@@ -87,7 +104,12 @@ export function inferMovementNature(row: MovementLike): TxNature {
 }
 
 export function classifyExtractedItems(items: ExtractedItem[]) {
-  return items.map((item) => ({ ...item, nature: inferMovementNature(item) }));
+  return items.map((item) => {
+    const normalized = isExpenseRefund(item)
+      ? { ...item, type: "income" as const }
+      : item;
+    return { ...normalized, nature: inferMovementNature(normalized) };
+  });
 }
 
 function transferLike(row: MovementLike) {
