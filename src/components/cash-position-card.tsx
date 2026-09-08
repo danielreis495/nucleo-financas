@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, Landmark, ReceiptText } from "lucide-react";
 import { cashPositionForMonth } from "@/lib/cash-position";
 import { useDocumentStore } from "@/lib/document-store";
-import { formatBRL } from "@/lib/money";
+import { formatBRL, formatShortDate } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 export function CashPositionCard({ month }: { month: string }) {
@@ -46,6 +46,23 @@ export function CashPositionCard({ month }: { month: string }) {
           hint={position.billsKnown ? `${position.billCount} fatura${position.billCount === 1 ? "" : "s"} ligada${position.billCount === 1 ? "" : "s"} ao mês` : "Nenhuma fatura identificada"}
         />
       </div>
+
+      {position.bills.length > 0 ? (
+        <div className="mt-2 rounded-lg bg-surface px-3 py-2 shadow-[var(--shadow-border)]">
+          <p className="text-[11px] font-medium text-muted">Faturas identificadas</p>
+          <ul className="mt-1 divide-y divide-line">
+            {position.bills.map((bill) => (
+              <li key={`${bill.institution}-${bill.dueDate ?? bill.amount}`} className="flex items-center justify-between gap-3 py-1.5 text-xs">
+                <span className="min-w-0 truncate">
+                  {bill.institution}
+                  {bill.dueDate ? <span className="text-muted"> · vence {formatShortDate(bill.dueDate)}</span> : null}
+                </span>
+                <span className="shrink-0 font-medium tabular-nums">{formatBRL(bill.amount)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="mt-2 rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
         <div className="flex items-center justify-between gap-3">
