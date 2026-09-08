@@ -254,6 +254,7 @@ export async function geminiGenerate(apiKey: string, input: ChatInput): Promise<
       }
       const body = (await res.json()) as {
         candidates?: { content?: { parts?: { text?: string }[] } }[];
+      };
       const text = body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
       if (!text) break;
       return { ok: true, text };
