@@ -28,6 +28,11 @@ export type CashPosition = {
   billsKnown: boolean;
   billsDue: number;
   billCount: number;
+  bills: Array<{
+    institution: string;
+    amount: number;
+    dueDate?: string;
+  }>;
   netAvailable: number | null;
 };
 
@@ -77,7 +82,12 @@ export function cashPositionForMonth(
     if (!billMap.has(key)) billMap.set(key, bill);
   }
   const uniqueBills = [...billMap.values()];
-  const billsDue = uniqueBills.reduce((sum, bill) => sum + (bill.billTotal ?? 0), 0);
+  const billDetails = uniqueBills.map((bill) => ({
+    institution: bill.institution,
+    amount: bill.billTotal ?? 0,
+    dueDate: bill.dueDate,
+  }));
+  const billsDue = billDetails.reduce((sum, bill) => sum + bill.amount, 0);
 
   const cashKnown = selectedStatements.length > 0;
   const billsKnown = uniqueBills.length > 0;
@@ -88,6 +98,7 @@ export function cashPositionForMonth(
     billsKnown,
     billsDue,
     billCount: uniqueBills.length,
+    bills: billDetails,
     netAvailable: cashKnown ? cashBalance - billsDue : null,
   };
 }
