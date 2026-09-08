@@ -26,6 +26,29 @@ import { cn, todayIso, uid } from "@/lib/utils";
 
 export const Route = createFileRoute("/captura")({ component: CapturaPage });
 
+const IMPORT_FINGERPRINTS_KEY = "nucleo-import-fingerprints-v1";
+
+function importedFingerprints() {
+  try {
+    const raw = localStorage.getItem(IMPORT_FINGERPRINTS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set<string>(Array.isArray(parsed) ? parsed.filter((value) => typeof value === "string") : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function hasImportedFingerprint(fingerprint: string | undefined) {
+  return Boolean(fingerprint && importedFingerprints().has(fingerprint));
+}
+
+function rememberImportedFingerprint(fingerprint: string | undefined) {
+  if (!fingerprint) return;
+  const fingerprints = importedFingerprints();
+  fingerprints.add(fingerprint);
+  localStorage.setItem(IMPORT_FINGERPRINTS_KEY, JSON.stringify([...fingerprints].slice(-120)));
+}
+
 function CapturaPage() {
   const people = useFinanceStore((s) => s.people);
   const accounts = useFinanceStore((s) => s.accounts ?? []);
@@ -47,6 +70,7 @@ function CapturaPage() {
   const [documentSummary, setDocumentSummary] = useState<FinancialDocumentSummary | null>(null);
   const [duplicateSummary, setDuplicateSummary] = useState<DuplicateSummary | null>(null);
   const [importOrigin, setImportOrigin] = useState<ImportOrigin | null>(null);
+  const [documentFingerprint, setDocumentFingerprint] = useState<string | null>(null);
   const [source, setSource] = useState<TxSource>("photo");
   const [quick, setQuick] = useState(false);
   const [digits, setDigits] = useState("");
@@ -58,9 +82,11 @@ function CapturaPage() {
 
   function enrichExistingOrigins(importedItems: ExtractedItem[], origin: ImportOrigin) {
     let updated = 0;
+    const usedExisting = new Set<string>();
     for (const item of importedItems) {
-      const existing = findExactDuplicate(item, transactions);
+      const existing = findExactDuplicate(item, transactions, usedExisting, origin);
       if (!existing) continue;
+      usedExisting.add(existing.id);
       updateTransaction(existing.id, {
         originLabel: origin.originLabel,
         originInstitution: origin.originInstitution,
@@ -80,30 +106,36 @@ function CapturaPage() {
     setDocumentSummary(null);
     setDuplicateSummary(null);
     setImportOrigin(null);
+    setDocumentFingerprint(null);
     setBusy(true);
     setStatus("Preparando arquivo…");
     try {
       const { prepareFile } = await import("@/lib/extract-client");
       const prepared = await prepareFile(file);
       setSource(prepared.source);
-      const summary = summarizeFinancialDocument(prepared.text, todayIso());
+      setDocumentFingerprint(prepared.fingerprint ?? null);
+
+      const summary = summarizeFinancialDocument(prepared.text, todayIso(), file.name, prepared.source);
       const origin = originFromDocument(summary, file.name, prepared.source, prepared.text);
       setDocumentSummary(summary);
       setImportOrigin(origin);
-      if (summary?.kind === "bank_statement") {
+
+      if (origin.originKind === "bank_account" && origin.originInstitution) {
         const candidates = accounts.filter(
           (account) =>
             account.active &&
-            account.institution.trim().toLowerCase() === summary.institution.trim().toLowerCase(),
+            account.institution.trim().toLowerCase() === origin.originInstitution?.trim().toLowerCase(),
         );
         if (candidates.length === 1) setAccountId(candidates[0].id);
       }
 
-      setStatus(
-        prepared.source === "pdf"
-          ? "Lendo fatura, saldo e compras…"
-          : "Extraindo lançamentos…",
-      );
+      if (hasImportedFingerprint(prepared.fingerprint)) {
+        toast.success(`Este arquivo já foi importado como ${origin.originLabel}. Nenhum lançamento foi duplicado.`);
+        void navigate({ to: "/extrato" });
+        return;
+      }
+
+      setStatus(`Detectado: ${origin.originLabel}. Extraindo lançamentos…`);
       const casa = people.find((p) => p.role === "other") ?? people[0];
       const payload = {
         text: prepared.text,
@@ -127,13 +159,12 @@ function CapturaPage() {
 
       const holderNames = [summary?.holderName, ...summaries.map((item) => item.holderName)];
       const classified = applyKnownHolderTransfers(result.items, holderNames);
-      const checked = flagImportDuplicates(classified, transactions);
+      const checked = flagImportDuplicates(classified, transactions, origin);
 
-      // Mesmo quando tudo já existe, a reimportação é útil para gravar a origem
-      // do lançamento (Cartão Nubank, Conta Itaú etc.) sem criar duplicidades.
       if (checked.items.length > 0 && checked.items.every((item) => !item.selected)) {
         const enriched = enrichExistingOrigins(checked.items, origin);
         if (summary) addSummary(summary);
+        rememberImportedFingerprint(prepared.fingerprint);
         toast.success(
           enriched > 0
             ? `Origem atualizada em ${enriched} lançamento${enriched === 1 ? "" : "s"}. Nenhum duplicado foi adicionado.`
@@ -142,6 +173,7 @@ function CapturaPage() {
         setDocumentSummary(null);
         setDuplicateSummary(null);
         setImportOrigin(null);
+        setDocumentFingerprint(null);
         setItems(null);
         void navigate({ to: "/extrato" });
         return;
@@ -163,6 +195,7 @@ function CapturaPage() {
     setDocumentSummary(null);
     setDuplicateSummary(null);
     setImportOrigin({ originLabel: "Exemplo", originKind: "unknown" });
+    setDocumentFingerprint(null);
     setSource("photo");
     setItems([
       {
@@ -205,6 +238,7 @@ function CapturaPage() {
           setDocumentSummary(null);
           setDuplicateSummary(null);
           setImportOrigin(null);
+          setDocumentFingerprint(null);
         }}
         onConfirm={() => {
           const holderNames = [documentSummary?.holderName, ...summaries.map((item) => item.holderName)];
@@ -218,11 +252,13 @@ function CapturaPage() {
           if (importOrigin) enrichExistingOrigins(items, importOrigin);
           importExtracted(items, source, accountId, importOrigin ?? undefined);
           addSummary(documentSummary);
+          rememberImportedFingerprint(documentFingerprint ?? undefined);
           toast.success(documentSummary ? "Lançamentos, origem e dados do documento adicionados" : "Lançamentos adicionados");
           setItems(null);
           setDocumentSummary(null);
           setDuplicateSummary(null);
           setImportOrigin(null);
+          setDocumentFingerprint(null);
           void navigate({ to: "/extrato" });
         }}
       />

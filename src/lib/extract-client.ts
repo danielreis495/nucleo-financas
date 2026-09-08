@@ -5,6 +5,7 @@ export type PreparedDocument = {
   text?: string;
   images?: { mime: string; base64: string }[];
   source: "photo" | "pdf" | "sheet";
+  fingerprint?: string;
 };
 
 function blobToBase64(blob: Blob) {
@@ -18,6 +19,18 @@ function blobToBase64(blob: Blob) {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(blob);
   });
+}
+
+async function fileFingerprint(file: File) {
+  try {
+    const bytes = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  } catch {
+    return `${file.size}-${file.lastModified}-${file.name.toLowerCase()}`;
+  }
 }
 
 async function compressImage(file: Blob, max = 1600, quality = 0.82) {
@@ -127,20 +140,17 @@ async function preparePdf(file: File): Promise<PreparedDocument> {
     canvas.height = Math.max(1, Math.round(view.height));
     const ctx = canvas.getContext("2d");
     if (!ctx) continue;
-    await page.render({ canvasContext: ctx, viewport: view, canvas }).promise;
+    await page.render({ canvasContext: ctx, viewport: view }).promise;
     images.push({ mime: "image/jpeg", base64: await canvasToJpeg(canvas, 0.82) });
   }
 
   const text = textParts.join("\n\n").slice(0, 40000);
-  const looksLikeFatura = /fatura|cart[aã]o|nubank|inter|itau|itaú|c6|bradesco|santander|bb |next|picpay|will bank|fatura de/i.test(
-    `${file.name}\n${text}`,
-  );
 
   return {
     source: "pdf",
     text:
       text.length > 20
-        ? `${looksLikeFatura ? "TIPO: fatura ou extrato de cartão brasileiro.\n" : ""}Arquivo: ${file.name}\nPáginas lidas: ${pageCount} de ${pdf.numPages}\n\n${text}`
+        ? `TIPO: documento financeiro brasileiro. Identifique pelo conteúdo se é extrato de conta, fatura de cartão ou outro documento; não assuma o tipo apenas pelo nome do banco.\nArquivo: ${file.name}\nPáginas lidas: ${pageCount} de ${pdf.numPages}\n\n${text}`
         : undefined,
     images: images.slice(0, 6),
   };
@@ -177,12 +187,14 @@ async function prepareSheet(file: File): Promise<PreparedDocument> {
 export async function prepareFile(file: File): Promise<PreparedDocument> {
   const type = file.type;
   const name = file.name.toLowerCase();
+  const fingerprint = await fileFingerprint(file);
+
   if (type.startsWith("image/") || /\.(png|jpe?g|webp|gif|heic)$/.test(name)) {
     const base64 = await compressImage(file);
-    return { source: "photo", images: [{ mime: "image/jpeg", base64 }] };
+    return { source: "photo", images: [{ mime: "image/jpeg", base64 }], fingerprint };
   }
   if (type === "application/pdf" || name.endsWith(".pdf")) {
-    return preparePdf(file);
+    return { ...(await preparePdf(file)), fingerprint };
   }
   if (
     name.endsWith(".csv") ||
@@ -192,7 +204,7 @@ export async function prepareFile(file: File): Promise<PreparedDocument> {
     type.includes("csv") ||
     type.includes("excel")
   ) {
-    return prepareSheet(file);
+    return { ...(await prepareSheet(file)), fingerprint };
   }
   throw new Error("Use foto, PDF, CSV ou planilha Excel.");
 }
