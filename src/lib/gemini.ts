@@ -1,4 +1,5 @@
 import { CATEGORIES } from "./categories";
+import { isGenericFinancialIntermediaryName } from "./merchant-aliases";
 import { parseLooseAmount } from "./money";
 import type { AdviceItem, CategoryId, ExtractedItem, InstallmentKind, TxNature, TxType } from "./types";
 import { uid } from "./utils";
@@ -111,6 +112,38 @@ function asKind(value: unknown): InstallmentKind {
   return "other";
 }
 
+function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function resolveMerchant(row: Record<string, unknown>, description: string, nature: TxNature) {
+  const rawMerchant = String(row.merchant ?? row.counterparty ?? description ?? "Comércio").trim();
+  const counterparty = String(row.counterparty ?? "").trim();
+  const movementText = normalizeText(description);
+  const counterpartyRequired =
+    nature === "transfer" ||
+    (nature === "budget" && /\bpix\b|\btransferencia\b|\btransfer\b|\bted\b/.test(movementText));
+
+  if (counterpartyRequired && counterparty && !isGenericFinancialIntermediaryName(counterparty)) {
+    return counterparty;
+  }
+
+  if (counterpartyRequired && isGenericFinancialIntermediaryName(rawMerchant)) {
+    // Banco/PSP é a instituição técnica da transferência, não o fornecedor.
+    // Se o documento não revelar a contraparte com segurança, é melhor admitir
+    // isso do que apresentar o banco como se fosse a loja/pessoa que recebeu.
+    return "Favorecido não identificado";
+  }
+
+  return rawMerchant || description || "Comércio";
+}
+
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -221,7 +254,6 @@ export async function geminiGenerate(apiKey: string, input: ChatInput): Promise<
       }
       const body = (await res.json()) as {
         candidates?: { content?: { parts?: { text?: string }[] } }[];
-      };
       const text = body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
       if (!text) break;
       return { ok: true, text };
@@ -260,8 +292,9 @@ Responda APENAS um JSON válido, sem markdown:
 {
   "items": [
     {
-      "description": "string curta mas reconhecível",
-      "merchant": "string",
+      "description": "texto curto preservando a evidência do documento",
+      "merchant": "nome da loja/pessoa/contraparte real",
+      "counterparty": "nome do beneficiário/remetente real ou string vazia",
       "amount": number,
       "date": "YYYY-MM-DD",
       "type": "expense" | "income",
@@ -282,6 +315,16 @@ NATUREZA FINANCEIRA — REGRA OBRIGATÓRIA:
 - "neutral": saldo do dia, saldo em conta, limite, totalizadores e linhas técnicas que não deveriam afetar orçamento.
 - NÃO marque todo Pix como transferência. Pix para loja, fornecedor, restaurante, pessoa de fora da casa ou prestador é gasto "budget". Pix recebido de cliente/terceiro pode ser entrada "budget".
 
+CONTRAPARTE / NOME DO LANÇAMENTO — REGRA OBRIGATÓRIA:
+- merchant é QUEM realmente recebeu ou enviou o dinheiro: loja, fornecedor, prestador, pessoa ou empregador.
+- counterparty repete esse nome quando ele estiver claramente identificado no documento. Preserve a grafia do documento; não invente nem complete nomes.
+- Banco, instituição de pagamento ou adquirente (ex.: ITAÚ UNIBANCO S.A., NU PAGAMENTOS, PAGSEGURO/PAGBANK, BRADESCO, SANTANDER, CAIXA, BANCO DO BRASIL, MERCADO PAGO, PICPAY) NÃO é merchant só porque aparece como instituição da conta/chave Pix do favorecido.
+- Em Pix/transferência, procure explicitamente campos como nome, favorecido, beneficiário, recebedor, destinatário, pagador ou remetente. Esse nome tem prioridade sobre banco/instituição/agência/conta.
+- Exemplo: "Favorecido: MERCADO ABC | Instituição: ITAÚ UNIBANCO S.A." => merchant="MERCADO ABC", counterparty="MERCADO ABC". NÃO use "ITAÚ UNIBANCO S.A.".
+- Exemplo: "Recebedor: JOÃO SILVA | Banco: PAGSEGURO" => merchant="JOÃO SILVA". NÃO use "PAGSEGURO".
+- Se o documento só mostrar a instituição financeira e NÃO revelar a contraparte, use merchant="Favorecido não identificado" e preserve a instituição em description. É melhor admitir ausência de dado do que inventar fornecedor.
+- Exceção: quando o próprio banco é de fato o serviço pago (pagamento de fatura, tarifa, juros, empréstimo, seguro bancário), ele pode ser merchant.
+
 FATURA / EXTRATO DE CARTÃO (Nubank, Inter, Itaú, C6, Bradesco, Santander, PicPay, etc.):
 - UM item para CADA compra da lista de lançamentos.
 - NÃO junte compras. NÃO use o total da fatura como um único gasto.
@@ -296,7 +339,8 @@ EXTRATO DE CONTA / CSV BANCÁRIO:
 - Retorne os lançamentos reais, mas diferencie orçamento de mera movimentação financeira.
 - Salário, "PAGTO SALARIO", "REMUNERACAO/SALARIO" e pagamentos de terceiros: type = "income", nature = "budget".
 - Compra, Pix para comércio/pessoa de fora da casa, boleto de energia/seguro/serviço e tarifas reais: type = "expense", nature = "budget".
-- Transferência recebida ou enviada para o MESMO TITULAR do extrato, ou para outra conta claramente pertencente a uma pessoa cadastrada da casa: nature = "transfer". Preserve no merchant/description o nome do remetente/favorecido para permitir conferência.
+- Transferência recebida ou enviada para o MESMO TITULAR do extrato, ou para outra conta claramente pertencente a uma pessoa cadastrada da casa: nature = "transfer". merchant/counterparty deve ser o nome do remetente/favorecido, nunca o banco dele.
+- Para Pix de compra/serviço, merchant/counterparty deve ser o fornecedor ou pessoa favorecida. A instituição financeira receptora deve ficar apenas em description quando for útil para auditoria.
 - "Aplicação RDB", "Aplicação Cofrinhos", aportes: type = "expense", nature = "investment".
 - "Resgate RDB", resgate de cofrinho/investimento: type = "income", nature = "investment".
 - "Pagamento de fatura": type = "expense", nature = "card_payment".
@@ -347,14 +391,17 @@ Geral:
       .map((raw) => {
         const row = (raw ?? {}) as Record<string, unknown>;
         const inst = row.installment as Record<string, unknown> | null;
+        const description = String(row.description ?? row.merchant ?? "Lançamento");
+        const nature = asNature(row.nature);
+        const merchant = resolveMerchant(row, description, nature);
         return {
           id: uid(),
-          description: String(row.description ?? row.merchant ?? "Lançamento"),
-          merchant: String(row.merchant ?? row.description ?? "Comércio"),
+          description,
+          merchant,
           amount: asAmount(row.amount),
           date: asDate(row.date, data.today),
           type: asType(row.type),
-          nature: asNature(row.nature),
+          nature,
           category: asCategory(row.category),
           personId: data.people.some((p) => p.id === row.personId)
             ? String(row.personId)
