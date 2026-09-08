@@ -17,7 +17,6 @@ function summaryAccountKey(summary: FinancialDocumentSummary) {
 function billIdentityKey(summary: FinancialDocumentSummary) {
   return [
     normalizeKeyPart(summary.institution),
-    normalizeKeyPart(summary.holderName),
     summary.referenceMonth,
   ].join("|");
 }
@@ -69,8 +68,9 @@ export function cashPositionForMonth(
     )
     .sort((a, b) => (b.importedAt ?? "").localeCompare(a.importedAt ?? ""));
 
-  // Pode existir um resumo antigo da mesma fatura salvo com um vencimento extraído
-  // de forma diferente. Para o caixa usamos apenas a versão importada mais recentemente.
+  // Titular não participa da identidade porque PDFs diferentes podem trazer o nome
+  // completo, abreviado ou nenhum titular. Para cada instituição/mês vale somente a
+  // leitura mais recente da fatura.
   const billMap = new Map<string, FinancialDocumentSummary>();
   for (const bill of bills) {
     const key = billIdentityKey(bill);
