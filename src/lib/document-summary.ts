@@ -164,20 +164,27 @@ function holderTokens(names: Array<string | undefined>) {
   return out;
 }
 
+export function matchesKnownHolderTransfer(
+  row: { merchant: string; description: string; nature?: string },
+  holderNames: Array<string | undefined>,
+) {
+  if (row.nature && row.nature !== "budget") return false;
+  const tokens = holderTokens(holderNames);
+  if (!tokens.size) return false;
+  const text = normalize(`${row.merchant} ${row.description}`);
+  if (!/\bpix transf\b|\btransferencia\b|\btransfer\b|\bted\b/.test(text)) return false;
+  if (/ltda|marketplace|comercio|servicos|cnpj/.test(text)) return false;
+  const words = new Set(text.split(" "));
+  return [...tokens].some((token) => words.has(token));
+}
+
 export function applyKnownHolderTransfers(
   items: ExtractedItem[],
   holderNames: Array<string | undefined>,
 ) {
-  const tokens = holderTokens(holderNames);
-  if (!tokens.size) return items;
-
-  return items.map((item) => {
-    if (item.nature && item.nature !== "budget") return item;
-    const text = normalize(`${item.merchant} ${item.description}`);
-    if (!/\bpix transf\b|\btransferencia\b|\btransfer\b|\bted\b/.test(text)) return item;
-    const looksBusiness = /ltda|marketplace|comercio|servicos|cnpj/.test(text);
-    if (looksBusiness) return item;
-    const matched = [...tokens].some((token) => text.split(" ").includes(token));
-    return matched ? { ...item, nature: "transfer" as const } : item;
-  });
+  return items.map((item) =>
+    matchesKnownHolderTransfer(item, holderNames)
+      ? { ...item, nature: "transfer" as const }
+      : item,
+  );
 }
