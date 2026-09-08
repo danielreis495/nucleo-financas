@@ -19,6 +19,7 @@ type MovementLike = {
   nature?: TxNature;
   natureLocked?: boolean;
   accountId?: string | null;
+  originKind?: "credit_card" | "bank_account" | "manual" | "unknown";
 };
 
 function normalize(value: string) {
@@ -44,9 +45,15 @@ export function countsInBudget(row: { nature?: TxNature }) {
 }
 
 export function isExpenseRefund(
-  row: Pick<MovementLike, "merchant" | "description" | "type" | "nature">,
+  row: Pick<MovementLike, "merchant" | "description" | "type" | "nature" | "originKind">,
 ) {
-  if (natureOf(row) !== "budget") return false;
+  if (natureOf(row) !== "budget" || row.type !== "income") return false;
+
+  // Em fatura de cartão, um lançamento positivo para o cliente (type=income)
+  // é crédito/estorno que reduz a despesa. Pagamentos da fatura são ignorados
+  // na extração e, quando aparecem em extrato de conta, usam card_payment.
+  if (row.originKind === "credit_card") return true;
+
   const text = textOf(row);
   return (
     /\bestorno\b/.test(text) ||
