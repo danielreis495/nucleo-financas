@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowDownRight, ArrowUpRight, Sparkles } from "lucide-react";
+import { CashPositionCard } from "@/components/cash-position-card";
 import { MonthHeader } from "@/components/month-header";
 import { PersonAvatar } from "@/components/person-avatar";
 import { TransactionEdit } from "@/components/transaction-edit";
@@ -53,8 +54,11 @@ function Home() {
       ) : null}
 
       <section className="mx-5 rounded-xl bg-primary px-5 py-5 text-primary-fg">
-        <p className="text-xs font-medium tracking-wide text-primary-fg/70 uppercase">Saldo do mês</p>
+        <p className="text-xs font-medium tracking-wide text-primary-fg/70 uppercase">Resultado do mês</p>
         <p className="mt-1 font-display text-4xl tabular-nums tracking-tight">{formatBRL(totals.balance)}</p>
+        <p className="mt-1 text-xs leading-relaxed text-primary-fg/70">
+          Entradas menos gastos do orçamento. Este valor não é o saldo que ficou nas suas contas.
+        </p>
         <div className="mt-4 grid grid-cols-2 gap-3">
           <Link
             to="/extrato"
@@ -78,6 +82,8 @@ function Home() {
           </Link>
         </div>
       </section>
+
+      <CashPositionCard month={month} />
 
       <section className="px-5">
         <p className="mb-2 text-xs font-medium text-muted">Ritmo do mês</p>
