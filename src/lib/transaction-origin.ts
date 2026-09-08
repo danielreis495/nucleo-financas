@@ -30,6 +30,35 @@ function institutionFromHint(value: string) {
   return undefined;
 }
 
+function strongCardEvidence(fileName: string | undefined, documentText: string | undefined) {
+  const file = normalize(fileName ?? "");
+  const text = normalize((documentText ?? "").slice(0, 16000));
+
+  const explicitFile = /\bfatura\b|\binvoice\b/.test(file);
+  const explicitContent =
+    /\bpagamento total da fatura\b/.test(text) ||
+    /\btotal desta fatura\b/.test(text) ||
+    /\bvalor total da fatura\b/.test(text) ||
+    /\bresumo da fatura\b/.test(text) ||
+    /\bfatura atual\b/.test(text) ||
+    (/\bfatura\b/.test(text) && /\bvencimento\b/.test(text) && /\blimite\b/.test(text));
+
+  return explicitFile || explicitContent;
+}
+
+function strongAccountEvidence(documentText: string | undefined) {
+  const text = normalize((documentText ?? "").slice(0, 16000));
+  return (
+    /\bextrato\b/.test(text) ||
+    /\bconta corrente\b/.test(text) ||
+    /\bsaldo em conta\b/.test(text) ||
+    /\bsaldo do dia\b/.test(text) ||
+    /\blancamentos da conta\b/.test(text) ||
+    /\baplicacao rdb\b/.test(text) ||
+    /\bresgate rdb\b/.test(text)
+  );
+}
+
 export function originFromDocument(
   summary: FinancialDocumentSummary | null,
   fileName: string | undefined,
@@ -62,16 +91,34 @@ export function originFromDocument(
     };
   }
 
-  const hint = `${fileName ?? ""}\n${(documentText ?? "").slice(0, 12000)}`;
-  const normalizedHint = normalize(hint);
+  const hint = `${fileName ?? ""}\n${(documentText ?? "").slice(0, 16000)}`;
   const institution = institutionFromHint(hint);
-  const looksLikeCard =
-    /\bfatura\b|\bcartao\b|\bcredit card\b/.test(normalizedHint) ||
-    /(?:^|\s)fatura[_\- ]/.test(normalize(fileName ?? ""));
-  const looksLikeAccount =
-    /\bextrato\b|\bconta corrente\b|\bsaldo em conta\b|\blancamentos conta\b/.test(normalizedHint);
+  const isCard = strongCardEvidence(fileName, documentText);
+  const isAccount = strongAccountEvidence(documentText);
 
-  if (institution && looksLikeCard) {
+  // CSV/Excel bancário é tratado como conta por padrão. A simples menção a
+  // "cartão" dentro de um lançamento (ex.: pagamento de fatura ou Pix no crédito)
+  // não pode transformar o extrato inteiro em fatura de cartão.
+  if (institution && source === "sheet" && !isCard) {
+    return {
+      originLabel: `Conta ${institution}`,
+      originInstitution: institution,
+      originKind: "bank_account",
+      sourceFileName: fileName,
+    };
+  }
+
+  // Em PDFs, sinais de extrato prevalecem sobre menções soltas a cartão.
+  if (institution && isAccount && !isCard) {
+    return {
+      originLabel: `Conta ${institution}`,
+      originInstitution: institution,
+      originKind: "bank_account",
+      sourceFileName: fileName,
+    };
+  }
+
+  if (institution && isCard) {
     return {
       originLabel: `Cartão ${institution}`,
       originInstitution: institution,
@@ -80,7 +127,7 @@ export function originFromDocument(
     };
   }
 
-  if (institution && (looksLikeAccount || source === "sheet")) {
+  if (institution && isAccount) {
     return {
       originLabel: `Conta ${institution}`,
       originInstitution: institution,
