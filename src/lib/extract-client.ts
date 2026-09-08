@@ -150,7 +150,7 @@ async function preparePdf(file: File): Promise<PreparedDocument> {
     source: "pdf",
     text:
       text.length > 20
-        ? `TIPO: documento financeiro brasileiro. Identifique pelo conteúdo se é extrato de conta, fatura de cartão ou outro documento; não assuma o tipo apenas pelo nome do banco.\nArquivo: ${file.name}\nPáginas lidas: ${pageCount} de ${pdf.numPages}\n\n${text}`
+        ? `TIPO: documento financeiro brasileiro. Identifique pelo conteúdo se é extrato de conta, fatura de cartão ou outro documento; não assuma o tipo apenas pelo nome do banco.\nFIDELIDADE: preserve nomes de estabelecimentos, favorecidos e descrições exatamente como aparecem no documento. Não complete, corrija, traduza ou troque um nome por uma marca conhecida. A interpretação financeira pode ser inferida; o texto de origem não.\nArquivo: ${file.name}\nPáginas lidas: ${pageCount} de ${pdf.numPages}\n\n${text}`
         : undefined,
     images: images.slice(0, 6),
   };
@@ -162,7 +162,7 @@ function sheetToText(fileName: string, rows: Record<string, unknown>[]) {
   const lines = limited.map((row) =>
     header.map((h) => `${h}: ${row[h] ?? ""}`).join(" | "),
   );
-  return `Arquivo: ${fileName}\nColunas: ${header.join(", ")}\n${lines.join("\n")}`;
+  return `FIDELIDADE: preserve nomes e descrições exatamente como aparecem nas células. Não normalize nomes de estabelecimentos.\nArquivo: ${fileName}\nColunas: ${header.join(", ")}\n${lines.join("\n")}`;
 }
 
 async function prepareSheet(file: File): Promise<PreparedDocument> {
