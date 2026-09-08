@@ -67,6 +67,8 @@ export type Transaction = {
   originKind?: TxOriginKind;
   sourceFileName?: string;
   paymentMethod?: string;
+  /** Mês YYYY-MM usado no orçamento. Em cartão, representa a fatura; a data original continua em date. */
+  competenceMonth?: string;
   createdAt: string;
 };
 
@@ -81,6 +83,8 @@ export type InstallmentPlan = {
   personId: string;
   category: CategoryId;
   account: string;
+  /** Parcela que estava na fatura quando o plano foi conhecido; evita inventar parcelas passadas. */
+  importedCurrentIndex?: number;
 };
 
 export type CategoryBudget = {

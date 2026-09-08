@@ -5,6 +5,8 @@ export type ImportOrigin = {
   originInstitution?: string;
   originKind: TxOriginKind;
   sourceFileName?: string;
+  /** Para cartão, mês YYYY-MM da fatura que deve orientar o orçamento. */
+  competenceMonth?: string;
 };
 
 function normalize(value: string) {
@@ -100,6 +102,9 @@ export function originFromDocument(
     : undefined;
   const institution = summaryInstitution ?? institutionFromHint(hint);
   const kind = chooseOriginKind(summary, fileName, source, documentText);
+  const competenceMonth = kind === "credit_card" && summary?.kind === "credit_card_bill"
+    ? summary.referenceMonth
+    : undefined;
 
   if (kind === "manual") {
     return {
@@ -124,6 +129,7 @@ export function originFromDocument(
       originInstitution: institution,
       originKind: "credit_card",
       sourceFileName: fileName,
+      competenceMonth,
     };
   }
 
