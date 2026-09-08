@@ -96,6 +96,12 @@ const emptyState = (): FinanceState => ({
   demo: false,
 });
 
+function addMonthsKey(key: string, delta: number) {
+  const [year, month] = key.split("-").map(Number);
+  const date = new Date(year, month - 1 + delta, 1, 12, 0, 0);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
 function expandNewPlan(input: {
   id: string;
   title: string;
@@ -107,6 +113,7 @@ function expandNewPlan(input: {
   personId: string;
   category: CategoryId;
   currentIndex?: number;
+  currentSourceDate?: string;
   accountId?: string | null;
   source?: TxSource;
   nature?: TxNature;
@@ -118,12 +125,29 @@ function expandNewPlan(input: {
   const today = todayIso();
   const rows: Transaction[] = [];
   const current = input.currentIndex ?? 1;
-  for (let i = 0; i < input.totalCount; i++) {
-    const d = new Date(start);
-    d.setMonth(d.getMonth() + i);
-    const date = isoDate(d);
-    const index = i + 1;
-    const alreadyPaid = index < current || (index === current && date <= today);
+  const cardByBill = input.origin?.originKind === "credit_card" && Boolean(input.origin.competenceMonth);
+  const firstIndex = cardByBill ? current : 1;
+
+  for (let index = firstIndex; index <= input.totalCount; index++) {
+    let date: string;
+    let status: "posted" | "scheduled";
+    let competenceMonth: string | undefined;
+
+    if (cardByBill && input.origin?.competenceMonth) {
+      const offset = index - current;
+      const sourceDate = new Date(`${input.currentSourceDate ?? input.startDate}T12:00:00`);
+      sourceDate.setMonth(sourceDate.getMonth() + offset);
+      date = isoDate(sourceDate);
+      competenceMonth = addMonthsKey(input.origin.competenceMonth, offset);
+      status = index === current ? "posted" : "scheduled";
+    } else {
+      const d = new Date(start);
+      d.setMonth(d.getMonth() + (index - 1));
+      date = isoDate(d);
+      const alreadyPaid = index < current || (index === current && date <= today);
+      status = alreadyPaid || date <= today ? "posted" : "scheduled";
+    }
+
     rows.push({
       id: uid(),
       date,
@@ -133,7 +157,7 @@ function expandNewPlan(input: {
       type: "expense",
       nature: input.nature ?? "budget",
       natureLocked: input.natureLocked,
-      status: alreadyPaid || date <= today ? "posted" : "scheduled",
+      status,
       category: input.category,
       personId: input.personId,
       accountId: input.accountId ?? null,
@@ -147,6 +171,7 @@ function expandNewPlan(input: {
       originKind: input.origin?.originKind,
       sourceFileName: input.origin?.sourceFileName,
       paymentMethod: input.paymentMethod,
+      competenceMonth,
       createdAt: new Date().toISOString(),
     });
   }
@@ -299,10 +324,20 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         for (const item of selected) {
           const nature = natureOf(item);
           const paymentMethod = origin ? paymentMethodForItem(item, origin) : undefined;
+          const cardByBill = origin?.originKind === "credit_card" && Boolean(origin.competenceMonth);
+
           if (item.installment && item.installment.total > 1 && nature === "budget") {
             const planId = uid();
-            const start = new Date(item.date + "T12:00:00");
-            start.setMonth(start.getMonth() - (item.installment.current - 1));
+            let startDate: string;
+            if (cardByBill && origin?.competenceMonth) {
+              const firstMonth = addMonthsKey(origin.competenceMonth, -(item.installment.current - 1));
+              startDate = `${firstMonth}-01`;
+            } else {
+              const start = new Date(item.date + "T12:00:00");
+              start.setMonth(start.getMonth() - (item.installment.current - 1));
+              startDate = isoDate(start);
+            }
+
             newPlans.push({
               id: planId,
               title: item.description || item.merchant,
@@ -310,10 +345,11 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
               kind: item.installment.kind,
               installmentAmount: item.amount,
               totalCount: item.installment.total,
-              startDate: isoDate(start),
+              startDate,
               personId: item.personId,
               category: item.category,
               account: "",
+              importedCurrentIndex: cardByBill ? item.installment.current : undefined,
             });
             newTx.push(
               ...expandNewPlan({
@@ -323,7 +359,8 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
                 kind: item.installment.kind,
                 installmentAmount: item.amount,
                 totalCount: item.installment.total,
-                startDate: isoDate(start),
+                startDate,
+                currentSourceDate: item.date,
                 personId: item.personId,
                 category: item.category,
                 currentIndex: item.installment.current,
@@ -359,6 +396,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
               originKind: origin?.originKind,
               sourceFileName: origin?.sourceFileName,
               paymentMethod,
+              competenceMonth: cardByBill ? origin?.competenceMonth : undefined,
               createdAt: new Date().toISOString(),
             });
           }
