@@ -1,4 +1,4 @@
-import type { ExtractedItem, FinancialDocumentSummary } from "./types";
+import type { ExtractedItem, FinancialDocumentSummary, TxSource } from "./types";
 
 const PT_MONTH: Record<string, number> = {
   jan: 1,
@@ -84,8 +84,11 @@ function holderFrom(text: string) {
 }
 
 function bankStatementSummary(text: string): FinancialDocumentSummary | null {
-  const normalized = normalize(text.slice(0, 10000));
-  const looksLikeStatement = /extrato conta|extrato bancario|saldo em conta|saldo do dia/.test(normalized);
+  const normalized = normalize(text.slice(0, 12000));
+  const looksLikeStatement =
+    /extrato conta|extrato bancario|saldo em conta|saldo do dia|transferencia enviada pix|transferencia recebida pix|aplicacao rdb|resgate rdb/.test(
+      normalized,
+    );
   if (!looksLikeStatement) return null;
 
   let closingBalance: number | null = null;
@@ -93,6 +96,9 @@ function bankStatementSummary(text: string): FinancialDocumentSummary | null {
 
   const topBalance = text.match(/saldo em conta[\s\S]{0,220}?R\$\s*(-?[\d.]+,\d{2})/i);
   closingBalance = parseMoney(topBalance?.[1]);
+
+  const finalBalance = text.match(/saldo final[\s\S]{0,120}?R\$?\s*(-?[\d.]+,\d{2})/i);
+  if (closingBalance === null) closingBalance = parseMoney(finalBalance?.[1]);
 
   const daily = [...text.matchAll(/(\d{2}\/\d{2}\/\d{4})\s+SALDO DO DIA\s+(-?[\d.]+,\d{2})/gi)];
   if (daily.length) {
@@ -102,7 +108,7 @@ function bankStatementSummary(text: string): FinancialDocumentSummary | null {
 
   if (closingBalance === null) return null;
 
-  const periodEnd = text.match(/(?:até|ate)\s*(\d{2}\/\d{2}\/\d{4})/i);
+  const periodEnd = text.match(/(?:até|ate|a)\s*(\d{2}\/\d{2}\/\d{4})/i);
   if (!balanceDate) balanceDate = isoFromBr(periodEnd?.[1]);
   if (!balanceDate) return null;
 
@@ -119,8 +125,6 @@ function bankStatementSummary(text: string): FinancialDocumentSummary | null {
 }
 
 function officialCardBillTotal(text: string, institution: string) {
-  // Nubank: aceita apenas trechos que significam quitação integral da fatura.
-  // Nunca usamos o "Total a pagar" de páginas de parcelamento/simulação.
   if (institution === "Nubank") {
     return firstMoney(text, [
       /Pagamento total da fatura[\s\S]{0,120}?R\$\s*([\d.]+,\d{2})/i,
@@ -130,8 +134,6 @@ function officialCardBillTotal(text: string, institution: string) {
     ]);
   }
 
-  // Itaú: usa apenas campos do resumo/boletos que representam a fatura atual.
-  // "Total a pagar" é deliberadamente ignorado, pois aparece nas opções financiadas.
   if (institution === "Itaú") {
     return firstMoney(text, [
       /Total desta fatura[\s\S]{0,80}?R?\$?\s*([\d.]+,\d{2})/i,
@@ -141,7 +143,6 @@ function officialCardBillTotal(text: string, institution: string) {
     ]);
   }
 
-  // Outros emissores: prioriza frases explicitamente ligadas à fatura integral.
   const explicit = firstMoney(text, [
     /Pagamento total da fatura[\s\S]{0,120}?R\$\s*([\d.]+,\d{2})/i,
     /Total desta fatura[\s\S]{0,80}?R?\$?\s*([\d.]+,\d{2})/i,
@@ -150,8 +151,6 @@ function officialCardBillTotal(text: string, institution: string) {
   ]);
   if (explicit !== null) return explicit;
 
-  // Fallback conservador: só aceita "Total a pagar" quando há uma única ocorrência
-  // monetária no documento inteiro. Em caso de dúvida, é melhor não exibir valor.
   const genericMatches = [...text.matchAll(/\bTotal a pagar\s*:?[\s\n]*R\$\s*([\d.]+,\d{2})/gi)];
   if (genericMatches.length === 1) return parseMoney(genericMatches[0][1]);
 
@@ -159,8 +158,13 @@ function officialCardBillTotal(text: string, institution: string) {
 }
 
 function cardBillSummary(text: string, today: string): FinancialDocumentSummary | null {
-  const normalized = normalize(text.slice(0, 12000));
-  if (!/fatura/.test(normalized) || !/vencimento|total a pagar|total desta fatura/.test(normalized)) return null;
+  const normalized = normalize(text.slice(0, 16000));
+  const strongBillSignal =
+    /esta e a sua fatura|resumo da fatura atual|pagamento total da fatura|total desta fatura|valor total da fatura/.test(
+      normalized,
+    ) ||
+    (/\bfatura\b/.test(normalized) && /\bvencimento\b/.test(normalized) && /\blimite total do cartao/.test(normalized));
+  if (!strongBillSignal) return null;
 
   const currentYear = Number(today.slice(0, 4));
   const institution = institutionFrom(text);
@@ -193,8 +197,50 @@ function cardBillSummary(text: string, today: string): FinancialDocumentSummary 
   };
 }
 
-export function summarizeFinancialDocument(text: string | undefined, today: string) {
+function nubankStatementFile(fileName: string | undefined) {
+  const file = normalize(fileName ?? "");
+  return /^nu \d+ \d{2}(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\d{4} \d{2}(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\d{4} pdf$/.test(file);
+}
+
+function documentScores(text: string, fileName?: string, source?: TxSource) {
+  const normalized = normalize(text.slice(0, 20000));
+  const file = normalize(fileName ?? "");
+  let account = 0;
+  let card = 0;
+
+  if (nubankStatementFile(fileName)) account += 12;
+  if (/\bextrato\b|\bstatement\b/.test(file)) account += 6;
+  if (/\bfatura\b|\binvoice\b/.test(file)) card += 8;
+  if (source === "sheet" && !/\bfatura\b|\binvoice\b/.test(file)) account += 1;
+
+  if (/\btransferencia enviada pix\b|\btransferencia recebida pix\b/.test(normalized)) account += 6;
+  if (/\bextrato da conta\b|\bextrato conta\b|\bextrato bancario\b/.test(normalized)) account += 6;
+  if (/\bsaldo em conta\b|\bsaldo da conta\b|\bsaldo do dia\b/.test(normalized)) account += 4;
+  if (/\baplicacao rdb\b|\bresgate rdb\b|\baplicacao cofrinho\b|\bresgate cofrinho\b/.test(normalized)) account += 4;
+
+  if (/\besta e a sua fatura\b/.test(normalized)) card += 7;
+  if (/\bresumo da fatura atual\b|\bresumo da fatura\b/.test(normalized)) card += 6;
+  if (/\bpagamento total da fatura\b/.test(normalized)) card += 5;
+  if (/\btotal desta fatura\b|\bvalor total da fatura\b/.test(normalized)) card += 5;
+  if (/\blimite total do cartao de credito\b/.test(normalized)) card += 4;
+
+  return { account, card };
+}
+
+export function summarizeFinancialDocument(
+  text: string | undefined,
+  today: string,
+  fileName?: string,
+  source?: TxSource,
+) {
   if (!text?.trim()) return null;
+  const scores = documentScores(text, fileName, source);
+
+  // Quando há evidência forte de extrato, nunca tentamos interpretá-lo como
+  // fatura só porque um lançamento menciona “pagamento de fatura” ou “cartão”.
+  if (scores.account > scores.card) return bankStatementSummary(text);
+  if (scores.card > scores.account) return cardBillSummary(text, today);
+
   return bankStatementSummary(text) ?? cardBillSummary(text, today);
 }
 
