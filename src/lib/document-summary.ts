@@ -119,42 +119,39 @@ function bankStatementSummary(text: string): FinancialDocumentSummary | null {
 }
 
 function officialCardBillTotal(text: string, institution: string) {
-  // Campos que representam explicitamente a quitação integral da fatura.
+  // Nubank: aceita apenas trechos que significam quitação integral da fatura.
+  // Nunca usamos o "Total a pagar" de páginas de parcelamento/simulação.
+  if (institution === "Nubank") {
+    return firstMoney(text, [
+      /Pagamento total da fatura[\s\S]{0,120}?R\$\s*([\d.]+,\d{2})/i,
+      /Esta (?:é|e) a sua fatura[\s\S]{0,260}?no valor de[\s\S]{0,60}?R\$\s*([\d.]+,\d{2})/i,
+      /Alternativas de pagamento[\s\S]{0,220}?fatura no valor de[\s\S]{0,60}?R\$\s*([\d.]+,\d{2})/i,
+      /RESUMO DA FATURA ATUAL[\s\S]{0,1000}?Total a pagar[\s\S]{0,80}?R\$\s*([\d.]+,\d{2})/i,
+    ]);
+  }
+
+  // Itaú: usa apenas campos do resumo/boletos que representam a fatura atual.
+  // "Total a pagar" é deliberadamente ignorado, pois aparece nas opções financiadas.
+  if (institution === "Itaú") {
+    return firstMoney(text, [
+      /Total desta fatura[\s\S]{0,80}?R?\$?\s*([\d.]+,\d{2})/i,
+      /Lançamentos atuais[\s\S]{0,80}?R?\$?\s*([\d.]+,\d{2})/i,
+      /Total dos lançamentos atuais[\s\S]{0,80}?R?\$?\s*([\d.]+,\d{2})/i,
+      /Nome do Pagador\/CPF\/CNPJ[\s\S]{0,120}?Valor do Documento[\s\S]{0,80}?R\$\s*([\d.]+,\d{2})/i,
+    ]);
+  }
+
+  // Outros emissores: prioriza frases explicitamente ligadas à fatura integral.
   const explicit = firstMoney(text, [
-    /Pagamento total da fatura\s*:?[\s\n]*R\$\s*([\d.]+,\d{2})/i,
-    /Total desta fatura\s*:?[\s\n]*R?\$?\s*([\d.]+,\d{2})/i,
-    /Valor total da fatura\s*:?[\s\n]*R\$\s*([\d.]+,\d{2})/i,
-    /O total da sua fatura\s+(?:é|e)\s*:?[\s\n]*R\$\s*([\d.]+,\d{2})/i,
+    /Pagamento total da fatura[\s\S]{0,120}?R\$\s*([\d.]+,\d{2})/i,
+    /Total desta fatura[\s\S]{0,80}?R?\$?\s*([\d.]+,\d{2})/i,
+    /Valor total da fatura[\s\S]{0,80}?R\$\s*([\d.]+,\d{2})/i,
+    /O total da sua fatura\s+(?:é|e)[\s\S]{0,100}?R\$\s*([\d.]+,\d{2})/i,
   ]);
   if (explicit !== null) return explicit;
 
-  // O Nubank usa "Total a pagar" no resumo oficial, mas repete a mesma expressão
-  // em simulações e financiamentos. Só aceitamos quando estiver dentro do resumo.
-  if (institution === "Nubank") {
-    const nubankSummary = text.match(/RESUMO DA FATURA ATUAL[\s\S]{0,1400}/i)?.[0] ?? "";
-    const nubankTotal = firstMoney(nubankSummary, [
-      /Total a pagar\s*:?[\s\n]*R\$\s*([\d.]+,\d{2})/i,
-    ]);
-    if (nubankTotal !== null) return nubankTotal;
-
-    const coverTotal = firstMoney(text.slice(0, 5000), [
-      /(?:Esta é|Esta e) a sua fatura[\s\S]{0,160}?no valor de\s*R\$\s*([\d.]+,\d{2})/i,
-    ]);
-    if (coverTotal !== null) return coverTotal;
-  }
-
-  // No Itaú, o boleto/recibo repete o valor principal como "Valor do Documento".
-  // É um fallback seguro depois de procurar "Total desta fatura".
-  if (institution === "Itaú") {
-    const itauTotal = firstMoney(text, [
-      /Valor do Documento\s*R\$\s*([\d.]+,\d{2})/i,
-      /Lançamentos atuais\s*([\d.]+,\d{2})/i,
-    ]);
-    if (itauTotal !== null) return itauTotal;
-  }
-
-  // Fallback conservador para outros emissores: só usa "Total a pagar" se houver
-  // uma única ocorrência monetária no documento. Assim, simulações não viram fatura.
+  // Fallback conservador: só aceita "Total a pagar" quando há uma única ocorrência
+  // monetária no documento inteiro. Em caso de dúvida, é melhor não exibir valor.
   const genericMatches = [...text.matchAll(/\bTotal a pagar\s*:?[\s\n]*R\$\s*([\d.]+,\d{2})/gi)];
   if (genericMatches.length === 1) return parseMoney(genericMatches[0][1]);
 
