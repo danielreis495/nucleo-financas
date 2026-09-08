@@ -87,7 +87,7 @@ function CapturaPage() {
       const prepared = await prepareFile(file);
       setSource(prepared.source);
       const summary = summarizeFinancialDocument(prepared.text, todayIso());
-      const origin = originFromDocument(summary, file.name, prepared.source);
+      const origin = originFromDocument(summary, file.name, prepared.source, prepared.text);
       setDocumentSummary(summary);
       setImportOrigin(origin);
       if (summary?.kind === "bank_statement") {
