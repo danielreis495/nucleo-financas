@@ -117,6 +117,22 @@ export type ExtractedItem = {
   } | null;
 };
 
+export type FinancialDocumentKind = "bank_statement" | "credit_card_bill";
+
+export type FinancialDocumentSummary = {
+  id: string;
+  kind: FinancialDocumentKind;
+  institution: string;
+  holderName?: string;
+  importedAt: string;
+  referenceMonth: string;
+  balance?: number;
+  balanceDate?: string;
+  billTotal?: number;
+  dueDate?: string;
+  statementDate?: string;
+};
+
 export type FinanceState = {
   householdName: string;
   people: Person[];
@@ -125,6 +141,7 @@ export type FinanceState = {
   plans: InstallmentPlan[];
   budgets: CategoryBudget[];
   customCategories: CustomCategory[];
+  documentSummaries: FinancialDocumentSummary[];
   advice: AdviceCache | null;
   demo: boolean;
 };
