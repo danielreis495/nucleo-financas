@@ -63,7 +63,9 @@ export const useDocumentStore = create<DocumentState>()(
       clearSummaries: () => set({ summaries: [] }),
     }),
     {
-      name: "nucleo-documents-v1",
+      // v1 guardava resumos criados por versões antigas do parser e pode conter
+      // totais incorretos de fatura. v2 começa limpa sem apagar os lançamentos.
+      name: "nucleo-documents-v2",
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<DocumentState>;
         return {
