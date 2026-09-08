@@ -3,6 +3,7 @@ import { CategoryPicker } from "@/components/category-picker";
 import { MovementKindPicker } from "@/components/movement-kind-picker";
 import { PersonAvatar } from "@/components/person-avatar";
 import { Button } from "@/components/ui/button";
+import { rememberMerchantAlias } from "@/lib/merchant-aliases";
 import { natureOf } from "@/lib/movement-nature";
 import { formatBRL, parseLooseAmount } from "@/lib/money";
 import { useFinanceStore } from "@/lib/store";
@@ -35,9 +36,13 @@ export function TransactionEdit({
 
   function saveCore() {
     const amount = parseLooseAmount(amountText);
+    const nextMerchant = merchant.trim() || live.merchant;
+    if (live.source !== "manual" && nextMerchant !== live.merchant) {
+      rememberMerchantAlias(live.merchant, nextMerchant);
+    }
     update(live.id, {
-      merchant: merchant.trim() || live.merchant,
-      description: description.trim() || merchant.trim() || live.description,
+      merchant: nextMerchant,
+      description: description.trim() || nextMerchant || live.description,
       date,
       amount: amount > 0 ? amount : live.amount,
     });
@@ -97,6 +102,11 @@ export function TransactionEdit({
             onChange={(e) => setMerchant(e.target.value)}
             className="mt-1 h-11 w-full rounded-md bg-surface px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
           />
+          {live.source !== "manual" ? (
+            <p className="mt-1 text-[11px] leading-relaxed text-muted">
+              Se você corrigir este nome, o Núcleo aprende a mesma correção para próximas importações. O detalhe abaixo permanece disponível para conferência.
+            </p>
+          ) : null}
 
           <label className="mt-3 block text-xs font-medium text-muted">Detalhe</label>
           <input
