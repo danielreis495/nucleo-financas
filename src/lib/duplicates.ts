@@ -9,11 +9,11 @@ export type DuplicateSummary = {
 export type DuplicateContext = {
   originInstitution?: string;
   originKind?: TxOriginKind;
+  sourceFileName?: string;
 };
 
 const TEXT_STOP = new Set([
   "pix",
-  "transferencia",
   "transferencia",
   "enviada",
   "enviado",
@@ -102,6 +102,18 @@ function daysApart(a: string, b: string) {
 
 function sameOrigin(transaction: Transaction, context?: DuplicateContext) {
   if (!context) return true;
+
+  // Se é o mesmo arquivo, aceitamos o pareamento mesmo quando a origem antiga
+  // estava classificada errada (ex.: Cartão Nubank -> Conta Nubank). Isso permite
+  // corrigir os registros existentes sem duplicá-los.
+  if (
+    context.sourceFileName &&
+    transaction.sourceFileName &&
+    normalizeText(context.sourceFileName) === normalizeText(transaction.sourceFileName)
+  ) {
+    return true;
+  }
+
   if (
     context.originInstitution &&
     transaction.originInstitution &&
