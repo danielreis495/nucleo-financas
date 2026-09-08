@@ -44,11 +44,20 @@ export function applyMerchantAlias(sourceName: string) {
 
 export function rememberMerchantAlias(sourceName: string, preferredName: string) {
   const key = normalize(sourceName);
+  const sourceNormalized = normalize(sourceName);
   const preferred = preferredName.trim();
-  if (!key || !preferred) return;
+  const preferredNormalized = normalize(preferred);
+  if (!key || !preferredNormalized) return;
 
   const aliases = readAliases();
-  if (normalize(sourceName) === normalize(preferred)) {
+
+  // Se o usuário está renomeando um nome que já era um apelido aprendido,
+  // atualiza também as origens que apontavam para ele.
+  for (const [aliasKey, value] of Object.entries(aliases)) {
+    if (normalize(value) === sourceNormalized) aliases[aliasKey] = preferred;
+  }
+
+  if (sourceNormalized === preferredNormalized) {
     delete aliases[key];
   } else {
     aliases[key] = preferred;
