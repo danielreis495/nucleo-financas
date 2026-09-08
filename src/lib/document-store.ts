@@ -9,11 +9,29 @@ type DocumentState = {
   clearSummaries: () => void;
 };
 
+function normalizeKeyPart(value: string | undefined) {
+  return (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 function summaryKey(summary: FinancialDocumentSummary) {
   if (summary.kind === "bank_statement") {
-    return [summary.kind, summary.institution, summary.balanceDate ?? summary.referenceMonth].join("|");
+    return [
+      summary.kind,
+      normalizeKeyPart(summary.institution),
+      normalizeKeyPart(summary.holderName),
+      summary.balanceDate ?? summary.referenceMonth,
+    ].join("|");
   }
-  return [summary.kind, summary.institution, summary.dueDate ?? summary.referenceMonth].join("|");
+
+  // A mesma fatura pode ser relida com pequenas diferenças de vencimento/extração.
+  // Para atualização de uma fatura já conhecida, a identidade estável é
+  // instituição + titular + mês de referência, e a versão mais recente substitui a anterior.
+  return [
+    summary.kind,
+    normalizeKeyPart(summary.institution),
+    normalizeKeyPart(summary.holderName),
+    summary.referenceMonth,
+  ].join("|");
 }
 
 export const useDocumentStore = create<DocumentState>()(
