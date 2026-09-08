@@ -17,10 +17,24 @@ function normalize(value: string) {
     .trim();
 }
 
+function institutionFromHint(value: string) {
+  const text = normalize(value);
+  if (/\bnubank\b|\bnu pagamentos\b/.test(text)) return "Nubank";
+  if (/\bitau\b/.test(text)) return "Itaú";
+  if (/\bbradesco\b/.test(text)) return "Bradesco";
+  if (/\bsantander\b/.test(text)) return "Santander";
+  if (/\bbanco do brasil\b/.test(text)) return "Banco do Brasil";
+  if (/\bcaixa economica\b|\bcaixa\b/.test(text)) return "Caixa";
+  if (/\binter\b|\bbanco inter\b/.test(text)) return "Inter";
+  if (/\bc6\b|\bc6 bank\b/.test(text)) return "C6";
+  return undefined;
+}
+
 export function originFromDocument(
   summary: FinancialDocumentSummary | null,
   fileName: string | undefined,
   source: TxSource,
+  documentText?: string,
 ): ImportOrigin {
   if (summary?.kind === "credit_card_bill") {
     return {
@@ -44,6 +58,33 @@ export function originFromDocument(
     return {
       originLabel: "Lançamento manual",
       originKind: "manual",
+      sourceFileName: fileName,
+    };
+  }
+
+  const hint = `${fileName ?? ""}\n${(documentText ?? "").slice(0, 12000)}`;
+  const normalizedHint = normalize(hint);
+  const institution = institutionFromHint(hint);
+  const looksLikeCard =
+    /\bfatura\b|\bcartao\b|\bcredit card\b/.test(normalizedHint) ||
+    /(?:^|\s)fatura[_\- ]/.test(normalize(fileName ?? ""));
+  const looksLikeAccount =
+    /\bextrato\b|\bconta corrente\b|\bsaldo em conta\b|\blancamentos conta\b/.test(normalizedHint);
+
+  if (institution && looksLikeCard) {
+    return {
+      originLabel: `Cartão ${institution}`,
+      originInstitution: institution,
+      originKind: "credit_card",
+      sourceFileName: fileName,
+    };
+  }
+
+  if (institution && (looksLikeAccount || source === "sheet")) {
+    return {
+      originLabel: `Conta ${institution}`,
+      originInstitution: institution,
+      originKind: "bank_account",
       sourceFileName: fileName,
     };
   }
