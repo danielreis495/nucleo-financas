@@ -1,3 +1,4 @@
+import { applyMerchantAlias } from "./merchant-aliases";
 import type { ExtractedItem, Transaction, TxNature } from "./types";
 
 export const NATURE_LABEL: Record<TxNature, string> = {
@@ -105,9 +106,10 @@ export function inferMovementNature(row: MovementLike): TxNature {
 
 export function classifyExtractedItems(items: ExtractedItem[]) {
   return items.map((item) => {
-    const normalized = isExpenseRefund(item)
-      ? { ...item, type: "income" as const }
-      : item;
+    const aliased = { ...item, merchant: applyMerchantAlias(item.merchant) };
+    const normalized = isExpenseRefund(aliased)
+      ? { ...aliased, type: "income" as const }
+      : aliased;
     return { ...normalized, nature: inferMovementNature(normalized) };
   });
 }
