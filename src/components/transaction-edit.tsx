@@ -73,6 +73,11 @@ export function TransactionEdit({
             <p className="mt-1 text-xs text-muted">
               {live.paymentMethod ? `Movimento: ${live.paymentMethod}` : "Forma do movimento não identificada"}
             </p>
+            {live.originKind === "credit_card" && live.competenceMonth ? (
+              <p className="mt-1 text-xs font-medium text-muted">
+                Competência da fatura: {formatCompetenceMonth(live.competenceMonth)}
+              </p>
+            ) : null}
             {live.sourceFileName ? (
               <p className="mt-1 break-all text-[11px] text-muted">Arquivo: {live.sourceFileName}</p>
             ) : null}
@@ -126,7 +131,7 @@ export function TransactionEdit({
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-muted">Data</label>
+              <label className="block text-xs font-medium text-muted">Data da compra/movimento</label>
               <input
                 type="date"
                 value={date}
@@ -215,4 +220,9 @@ export function TransactionEdit({
 
 function formatEditAmount(n: number) {
   return n.toFixed(2).replace(".", ",");
+}
+
+function formatCompetenceMonth(key: string) {
+  const [year, month] = key.split("-");
+  return month && year ? `${month}/${year}` : key;
 }
