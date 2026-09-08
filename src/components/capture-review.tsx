@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Check, Layers } from "lucide-react";
 import type { ExtractedItem } from "@/lib/types";
 import { categoryLabel } from "@/lib/categories";
-import { NATURE_LABEL, natureOf } from "@/lib/movement-nature";
+import { isExpenseRefund, NATURE_LABEL, natureOf } from "@/lib/movement-nature";
 import { formatBRL, formatShortDate } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { useFinanceStore } from "@/lib/store";
@@ -34,7 +34,11 @@ export function CaptureReview({
   const selected = items.filter((i) => i.selected);
   const selectedCount = selected.length;
   const excludedCount = selected.filter((i) => natureOf(i) !== "budget").length;
-  const total = selected.reduce((a, i) => a + i.amount, 0);
+  const netOutflow = selected.reduce(
+    (total, item) => total + (item.type === "income" ? -item.amount : item.amount),
+    0,
+  );
+  const netLabel = netOutflow >= 0 ? "Saída líquida" : "Entrada líquida";
   const [openId, setOpenId] = useState<string | null>(null);
 
   function patch(id: string, next: Partial<ExtractedItem>) {
@@ -104,6 +108,7 @@ export function CaptureReview({
           const person = people.find((p) => p.id === item.personId) ?? people[0];
           const open = openId === item.id;
           const nature = natureOf(item);
+          const refund = isExpenseRefund(item);
           return (
             <li
               key={item.id}
@@ -142,6 +147,11 @@ export function CaptureReview({
                     {item.description} · {formatShortDate(item.date)}
                   </p>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    {refund ? (
+                      <span className="rounded-full bg-income-soft px-2.5 py-1 text-xs font-medium text-income">
+                        Estorno / crédito
+                      </span>
+                    ) : null}
                     {nature === "budget" ? (
                       <span className="rounded-full bg-primary-soft px-2.5 py-1 text-xs font-medium text-primary">
                         {categoryLabel(item.category, custom)}
@@ -217,11 +227,14 @@ export function CaptureReview({
       </ul>
 
       <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 border-t border-line bg-elevated/95 px-4 py-3 backdrop-blur-md">
-        <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+        <div className="mb-2 flex items-end justify-between gap-3 text-sm">
           <span className="text-muted">
             {selectedCount} selecionados{excludedCount > 0 ? ` · ${excludedCount} fora do orçamento` : ""}
           </span>
-          <span className="font-display text-lg tabular-nums">{formatBRL(total)}</span>
+          <div className="text-right">
+            <p className="text-[10px] font-medium tracking-wide text-muted uppercase">{netLabel}</p>
+            <p className="font-display text-lg tabular-nums">{formatBRL(Math.abs(netOutflow))}</p>
+          </div>
         </div>
         <div className="grid grid-cols-[1fr_1.6fr] gap-2">
           <Button variant="secondary" onClick={onCancel}>
