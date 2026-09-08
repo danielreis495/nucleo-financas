@@ -44,6 +44,7 @@ export function TransactionEdit({
   }
 
   const nature = natureOf(live);
+  const originLabel = live.originLabel?.trim() || "Origem não identificada";
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
@@ -60,6 +61,22 @@ export function TransactionEdit({
         <div className="overflow-y-auto px-5 pt-4">
           <p className="text-xs font-medium tracking-wide text-muted uppercase">Editar lançamento</p>
           <p className="mt-1 font-display text-2xl tabular-nums">{formatBRL(live.amount)}</p>
+
+          <div className="mt-4 rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
+            <p className="text-[11px] font-medium tracking-wide text-muted uppercase">Origem do lançamento</p>
+            <p className="mt-1 text-sm font-medium">{originLabel}</p>
+            <p className="mt-1 text-xs text-muted">
+              {live.paymentMethod ? `Movimento: ${live.paymentMethod}` : "Forma do movimento não identificada"}
+            </p>
+            {live.sourceFileName ? (
+              <p className="mt-1 break-all text-[11px] text-muted">Arquivo: {live.sourceFileName}</p>
+            ) : null}
+            {!live.originLabel ? (
+              <p className="mt-2 text-[11px] leading-relaxed text-muted">
+                Este lançamento é anterior ao rastreamento de origem. Reimporte o documento correspondente para identificá-lo sem duplicar a despesa.
+              </p>
+            ) : null}
+          </div>
 
           <p className="mt-4 mb-2 text-xs font-medium text-muted">Como entra no orçamento</p>
           <MovementKindPicker
