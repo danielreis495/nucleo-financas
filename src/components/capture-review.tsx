@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Check, Layers } from "lucide-react";
 import type { ExtractedItem } from "@/lib/types";
 import { categoryLabel } from "@/lib/categories";
+import { rememberMerchantAlias } from "@/lib/merchant-aliases";
 import { isExpenseRefund, NATURE_LABEL, natureOf } from "@/lib/movement-nature";
 import { formatBRL, formatShortDate } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -179,7 +180,23 @@ export function CaptureReview({
 
               {open ? (
                 <div className="mt-3 border-t border-line pt-3">
-                  <p className="mb-2 text-xs font-medium text-muted">Como entra no orçamento</p>
+                  <label className="mb-1 block text-xs font-medium text-muted">Nome / loja</label>
+                  <input
+                    key={`${item.id}:${item.merchant}`}
+                    defaultValue={item.merchant}
+                    onBlur={(e) => {
+                      const next = e.currentTarget.value.trim();
+                      if (!next || next === item.merchant) return;
+                      rememberMerchantAlias(item.merchant, next);
+                      patch(item.id, { merchant: next });
+                    }}
+                    className="h-10 w-full rounded-md bg-surface px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
+                  />
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted">
+                    Se corrigir o nome aqui, o Núcleo aprende para próximas importações. O detalhe original continua logo abaixo do lançamento para conferência.
+                  </p>
+
+                  <p className="mt-3 mb-2 text-xs font-medium text-muted">Como entra no orçamento</p>
                   <MovementKindPicker
                     type={item.type}
                     nature={item.nature}
