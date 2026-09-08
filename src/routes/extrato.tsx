@@ -42,6 +42,7 @@ function ExtratoPage() {
   const [category, setCategory] = useState<CategoryId | "all">(cat ?? "all");
   const [txType, setTxType] = useState<Transaction["type"] | "all">(type ?? "all");
   const [scope, setScope] = useState<ScopeFilter>("all");
+  const [origin, setOrigin] = useState<string | "all">("all");
   const [editing, setEditing] = useState<Transaction | null>(null);
 
   useEffect(() => {
@@ -56,12 +57,33 @@ function ExtratoPage() {
     setTxType(type ?? "all");
   }, [type]);
 
+  useEffect(() => {
+    setOrigin("all");
+  }, [month]);
+
   const expenseCats = categoriesFor("gasto", custom);
   const incomeCats = categoriesFor("entrada", custom);
   const filterCats = [...expenseCats, ...incomeCats];
 
+  const monthRows = useMemo(
+    () => monthTransactions(state, month, true, true),
+    [state, month],
+  );
+
+  const originOptions = useMemo(() => {
+    const labels = new Set<string>();
+    let hasUnknown = false;
+    for (const row of monthRows) {
+      if (row.originLabel?.trim()) labels.add(row.originLabel.trim());
+      else hasUnknown = true;
+    }
+    const sorted = [...labels].sort((a, b) => a.localeCompare(b, "pt-BR"));
+    if (hasUnknown) sorted.push("Origem não identificada");
+    return sorted;
+  }, [monthRows]);
+
   const rows = useMemo(() => {
-    return monthTransactions(state, month, true, true)
+    return monthRows
       .filter((t) => (txType === "all" ? true : t.type === txType))
       .filter((t) => {
         const nature = natureOf(t);
@@ -69,10 +91,15 @@ function ExtratoPage() {
         if (scope === "excluded") return nature !== "budget";
         return true;
       })
+      .filter((t) => {
+        if (origin === "all") return true;
+        if (origin === "Origem não identificada") return !t.originLabel?.trim();
+        return t.originLabel === origin;
+      })
       .filter((t) => (personId === "all" ? true : t.personId === personId))
       .filter((t) => (category === "all" ? true : t.category === category))
       .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
-  }, [state, month, txType, scope, personId, category]);
+  }, [monthRows, txType, scope, origin, personId, category]);
 
   const groups = useMemo(() => {
     const map = new Map<string, typeof rows>();
@@ -125,6 +152,19 @@ function ExtratoPage() {
         </FilterChip>
       </div>
 
+      {originOptions.length > 0 ? (
+        <div className="flex gap-2 overflow-x-auto px-5 pb-2">
+          <FilterChip active={origin === "all"} onClick={() => setOrigin("all")}>
+            Todas as origens
+          </FilterChip>
+          {originOptions.map((label) => (
+            <FilterChip key={label} active={origin === label} onClick={() => setOrigin(label)}>
+              {label}
+            </FilterChip>
+          ))}
+        </div>
+      ) : null}
+
       <div className="flex gap-2 overflow-x-auto px-5 pb-2">
         <FilterChip active={txType === "all"} onClick={() => setTxType("all")}>
           Movimentos
@@ -173,6 +213,8 @@ function ExtratoPage() {
                 const scheduled = t.status === "scheduled";
                 const nature = natureOf(t);
                 const classification = nature === "budget" ? categoryLabel(t.category, custom) : NATURE_LABEL[nature];
+                const originLabel = t.originLabel?.trim() || "Origem não identificada";
+                const method = t.paymentMethod?.trim();
                 return (
                   <li key={t.id} className={i > 0 ? "border-t border-line" : ""}>
                     <SwipeRow onDelete={() => handleDelete(t)}>
@@ -185,11 +227,15 @@ function ExtratoPage() {
                           <span className="block truncate text-sm font-medium">{t.merchant}</span>
                           <span className="block text-xs text-muted">
                             {classification}
-                            {account ? ` · ${account.name}` : " · sem conta"}
                             {t.installmentIndex
                               ? ` · ${t.installmentIndex}/${t.installmentTotal}`
                               : ""}
                             {scheduled ? " · agendado" : ""}
+                          </span>
+                          <span className="mt-0.5 block truncate text-[11px] text-muted">
+                            Origem: {originLabel}
+                            {method ? ` · ${method}` : ""}
+                            {account && originLabel === "Origem não identificada" ? ` · ${account.name}` : ""}
                           </span>
                         </span>
                         <span

@@ -21,6 +21,7 @@ import type {
 import { CATEGORIES } from "./categories";
 import { natureOf, reconcileTransactionNatures } from "./movement-nature";
 import { createSeedState } from "./seed";
+import { paymentMethodForItem, type ImportOrigin } from "./transaction-origin";
 import { uid, isoDate, todayIso, monthKey } from "./utils";
 
 type FinanceActions = {
@@ -56,7 +57,12 @@ type FinanceActions = {
   restoreTransaction: (tx: Transaction) => void;
   addCustomCategory: (input: { label: string; group: CategoryGroup }) => string;
   setBudget: (category: CategoryId, monthlyLimit: number) => void;
-  importExtracted: (items: ExtractedItem[], source: TxSource, accountId?: string | null) => void;
+  importExtracted: (
+    items: ExtractedItem[],
+    source: TxSource,
+    accountId?: string | null,
+    origin?: ImportOrigin,
+  ) => void;
   addInstallmentPlan: (input: {
     title: string;
     merchant: string;
@@ -105,6 +111,8 @@ function expandNewPlan(input: {
   source?: TxSource;
   nature?: TxNature;
   natureLocked?: boolean;
+  origin?: ImportOrigin;
+  paymentMethod?: string;
 }): Transaction[] {
   const start = new Date(input.startDate + "T12:00:00");
   const today = todayIso();
@@ -134,6 +142,11 @@ function expandNewPlan(input: {
       installmentIndex: index,
       installmentTotal: input.totalCount,
       source: input.source ?? "manual",
+      originLabel: input.origin?.originLabel,
+      originInstitution: input.origin?.originInstitution,
+      originKind: input.origin?.originKind,
+      sourceFileName: input.origin?.sourceFileName,
+      paymentMethod: input.paymentMethod,
       createdAt: new Date().toISOString(),
     });
   }
@@ -235,6 +248,9 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           installmentIndex: null,
           installmentTotal: null,
           source: "manual",
+          originLabel: "Lançamento manual",
+          originKind: "manual",
+          paymentMethod: "Manual",
           createdAt: new Date().toISOString(),
         };
         set({ transactions: [t, ...get().transactions], demo: false });
@@ -276,12 +292,13 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           : [...budgets, { category, monthlyLimit }];
         set({ budgets: next });
       },
-      importExtracted: (items, source, accountId = null) => {
+      importExtracted: (items, source, accountId = null, origin) => {
         const selected = items.filter((i) => i.selected && i.amount > 0);
         const newPlans: FinanceState["plans"] = [];
         const newTx: Transaction[] = [];
         for (const item of selected) {
           const nature = natureOf(item);
+          const paymentMethod = origin ? paymentMethodForItem(item, origin) : undefined;
           if (item.installment && item.installment.total > 1 && nature === "budget") {
             const planId = uid();
             const start = new Date(item.date + "T12:00:00");
@@ -314,6 +331,8 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
                 source,
                 nature,
                 natureLocked: item.natureLocked,
+                origin,
+                paymentMethod,
               }),
             );
           } else {
@@ -335,6 +354,11 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
               installmentIndex: null,
               installmentTotal: null,
               source,
+              originLabel: origin?.originLabel,
+              originInstitution: origin?.originInstitution,
+              originKind: origin?.originKind,
+              sourceFileName: origin?.sourceFileName,
+              paymentMethod,
               createdAt: new Date().toISOString(),
             });
           }

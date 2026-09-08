@@ -36,6 +36,7 @@ export type TxType = "expense" | "income";
 export type TxNature = "budget" | "transfer" | "investment" | "card_payment" | "financing" | "neutral";
 export type TxStatus = "posted" | "scheduled";
 export type TxSource = "manual" | "photo" | "pdf" | "sheet" | "seed";
+export type TxOriginKind = "credit_card" | "bank_account" | "manual" | "unknown";
 export type InstallmentKind = "card" | "loan" | "other";
 
 export type SplitShare = {
@@ -61,6 +62,11 @@ export type Transaction = {
   installmentIndex: number | null;
   installmentTotal: number | null;
   source: TxSource;
+  originLabel?: string;
+  originInstitution?: string;
+  originKind?: TxOriginKind;
+  sourceFileName?: string;
+  paymentMethod?: string;
   createdAt: string;
 };
 
