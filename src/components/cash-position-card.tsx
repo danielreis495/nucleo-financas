@@ -1,12 +1,91 @@
-import { AlertTriangle, CheckCircle2, Landmark, ReceiptText } from "lucide-react";
+import { useRef, useState } from "react";
+import { AlertTriangle, CheckCircle2, Landmark, ReceiptText, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { cashPositionForMonth } from "@/lib/cash-position";
+import { summarizeFinancialDocument } from "@/lib/document-summary";
 import { useDocumentStore } from "@/lib/document-store";
 import { formatBRL } from "@/lib/money";
-import { cn } from "@/lib/utils";
+import { cn, todayIso } from "@/lib/utils";
+
+function normalizeInstitution(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
 
 export function CashPositionCard({ month }: { month: string }) {
   const summaries = useDocumentStore((s) => s.summaries);
+  const addSummary = useDocumentStore((s) => s.addSummary);
+  const clearSummaries = useDocumentStore((s) => s.clearSummaries);
   const position = cashPositionForMonth(summaries, month);
+  const refreshInput = useRef<HTMLInputElement>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const billRows = (() => {
+    const rows = summaries
+      .filter(
+        (summary) =>
+          summary.kind === "credit_card_bill" &&
+          summary.referenceMonth === month &&
+          typeof summary.billTotal === "number" &&
+          summary.billTotal > 0,
+      )
+      .sort((a, b) => (b.importedAt ?? "").localeCompare(a.importedAt ?? ""));
+    const seen = new Set<string>();
+    return rows.filter((row) => {
+      const key = normalizeInstitution(row.institution);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  })();
+
+  async function rebuildDocumentData(files: FileList | null) {
+    if (!files?.length) return;
+    setRefreshing(true);
+    try {
+      const { prepareFile } = await import("@/lib/extract-client");
+      const parsed = [];
+      const failed: string[] = [];
+
+      for (const file of Array.from(files)) {
+        try {
+          const prepared = await prepareFile(file);
+          const summary = summarizeFinancialDocument(prepared.text, todayIso());
+          if (!summary) {
+            failed.push(file.name);
+            continue;
+          }
+          parsed.push(summary);
+        } catch {
+          failed.push(file.name);
+        }
+      }
+
+      if (failed.length > 0) {
+        toast.error(
+          `Não consegui identificar saldo/fatura em ${failed.length} arquivo${failed.length === 1 ? "" : "s"}. Nada foi alterado.`,
+        );
+        return;
+      }
+
+      if (parsed.length === 0) {
+        toast.error("Não encontrei dados de saldo ou fatura nesses arquivos.");
+        return;
+      }
+
+      // Só limpa depois de confirmar que todos os PDFs escolhidos foram reconhecidos.
+      // Isso preserva o caixa atual se algum arquivo não puder ser lido.
+      clearSummaries();
+      for (const summary of parsed) addSummary(summary);
+
+      toast.success(
+        `${parsed.length} documento${parsed.length === 1 ? "" : "s"} recalculado${parsed.length === 1 ? "" : "s"}. Seus lançamentos não foram alterados.`,
+      );
+    } catch {
+      toast.error("Não consegui recalcular o caixa agora. Seus lançamentos não foram alterados.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   if (!position.cashKnown && !position.billsKnown) {
     return (
@@ -16,10 +95,15 @@ export function CashPositionCard({ month }: { month: string }) {
           <div>
             <p className="font-medium">Caixa real ainda não calculado</p>
             <p className="mt-1 text-sm leading-relaxed text-muted">
-              O resultado do mês não é o saldo da conta. Reimporte os extratos e faturas para o Núcleo ler o saldo final e os valores a pagar.
+              O resultado do mês não é o saldo da conta. Use os PDFs de extratos e faturas para o Núcleo ler somente saldo final e valores a pagar.
             </p>
           </div>
         </div>
+        <RefreshDocumentsButton
+          busy={refreshing}
+          inputRef={refreshInput}
+          onFiles={(files) => void rebuildDocumentData(files)}
+        />
       </section>
     );
   }
@@ -47,6 +131,20 @@ export function CashPositionCard({ month }: { month: string }) {
         />
       </div>
 
+      {billRows.length > 0 ? (
+        <div className="mt-2 rounded-lg bg-surface px-3 py-2.5 shadow-[var(--shadow-border)]">
+          <p className="text-[11px] font-medium text-muted">Composição das faturas</p>
+          <ul className="mt-1 divide-y divide-line">
+            {billRows.map((bill) => (
+              <li key={`${bill.institution}-${bill.referenceMonth}`} className="flex items-center justify-between gap-3 py-1.5 text-xs">
+                <span className="truncate text-muted">{bill.institution}</span>
+                <span className="font-medium tabular-nums">{formatBRL(bill.billTotal ?? 0)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <div className="mt-2 rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -70,7 +168,52 @@ export function CashPositionCard({ month }: { month: string }) {
           Este número é separado do resultado do mês: usa saldos finais encontrados nos extratos e desconta as faturas identificadas para o período.
         </p>
       </div>
+
+      <RefreshDocumentsButton
+        busy={refreshing}
+        inputRef={refreshInput}
+        onFiles={(files) => void rebuildDocumentData(files)}
+      />
     </section>
+  );
+}
+
+function RefreshDocumentsButton({
+  busy,
+  inputRef,
+  onFiles,
+}: {
+  busy: boolean;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onFiles: (files: FileList | null) => void;
+}) {
+  return (
+    <div className="mt-3">
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept="application/pdf,.pdf"
+        className="hidden"
+        onChange={(event) => {
+          const files = event.target.files;
+          event.target.value = "";
+          onFiles(files);
+        }}
+      />
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => inputRef.current?.click()}
+        className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary-soft px-3 text-sm font-medium text-primary disabled:opacity-50"
+      >
+        <RefreshCw className={cn("size-4", busy && "animate-spin")} />
+        {busy ? "Recalculando…" : "Recalcular com PDFs"}
+      </button>
+      <p className="mt-2 text-center text-[10px] leading-relaxed text-muted">
+        Selecione juntos os PDFs de extratos e faturas. Só saldo, total e vencimento são atualizados; os lançamentos do orçamento ficam intactos.
+      </p>
+    </div>
   );
 }
 
