@@ -30,33 +30,62 @@ function institutionFromHint(value: string) {
   return undefined;
 }
 
-function strongCardEvidence(fileName: string | undefined, documentText: string | undefined) {
+function nubankStatementFile(fileName: string | undefined) {
   const file = normalize(fileName ?? "");
-  const text = normalize((documentText ?? "").slice(0, 16000));
-
-  const explicitFile = /\bfatura\b|\binvoice\b/.test(file);
-  const explicitContent =
-    /\bpagamento total da fatura\b/.test(text) ||
-    /\btotal desta fatura\b/.test(text) ||
-    /\bvalor total da fatura\b/.test(text) ||
-    /\bresumo da fatura\b/.test(text) ||
-    /\bfatura atual\b/.test(text) ||
-    (/\bfatura\b/.test(text) && /\bvencimento\b/.test(text) && /\blimite\b/.test(text));
-
-  return explicitFile || explicitContent;
+  return /^nu \d+ \d{2}(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\d{4} \d{2}(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\d{4} pdf$/.test(file);
 }
 
-function strongAccountEvidence(documentText: string | undefined) {
-  const text = normalize((documentText ?? "").slice(0, 16000));
-  return (
-    /\bextrato\b/.test(text) ||
-    /\bconta corrente\b/.test(text) ||
-    /\bsaldo em conta\b/.test(text) ||
-    /\bsaldo do dia\b/.test(text) ||
-    /\blancamentos da conta\b/.test(text) ||
-    /\baplicacao rdb\b/.test(text) ||
-    /\bresgate rdb\b/.test(text)
-  );
+function evidenceScores(
+  summary: FinancialDocumentSummary | null,
+  fileName: string | undefined,
+  source: TxSource,
+  documentText?: string,
+) {
+  const file = normalize(fileName ?? "");
+  const text = normalize((documentText ?? "").slice(0, 20000));
+  let account = 0;
+  let card = 0;
+
+  if (nubankStatementFile(fileName)) account += 12;
+  if (/\bextrato\b|\bstatement\b/.test(file)) account += 6;
+  if (/\bfatura\b|\binvoice\b/.test(file)) card += 8;
+  if (source === "sheet" && !/\bfatura\b|\binvoice\b/.test(file)) account += 1;
+
+  if (/\btransferencia enviada pix\b|\btransferencia recebida pix\b/.test(text)) account += 6;
+  if (/\bextrato da conta\b|\bextrato conta\b|\bextrato bancario\b/.test(text)) account += 6;
+  if (/\bsaldo em conta\b|\bsaldo da conta\b|\bsaldo do dia\b/.test(text)) account += 4;
+  if (/\baplicacao rdb\b|\bresgate rdb\b|\baplicacao cofrinho\b|\bresgate cofrinho\b/.test(text)) account += 4;
+  if (/\bcompra no debito\b|\bdebito em conta\b/.test(text)) account += 2;
+
+  if (/\besta e a sua fatura\b/.test(text)) card += 7;
+  if (/\bresumo da fatura atual\b|\bresumo da fatura\b/.test(text)) card += 6;
+  if (/\bpagamento total da fatura\b/.test(text)) card += 5;
+  if (/\btotal desta fatura\b|\bvalor total da fatura\b/.test(text)) card += 5;
+  if (/\bfatura\b.{0,80}\bemissao e envio\b/.test(text)) card += 4;
+  if (/\blimite total do cartao de credito\b/.test(text)) card += 4;
+  if (/\bdata de vencimento\b/.test(text) && /\bfatura\b/.test(text)) card += 3;
+
+  // O resumo é um sinal auxiliar, não uma verdade absoluta. Extratos podem conter
+  // palavras como “fatura” e “cartão” em lançamentos individuais.
+  if (summary?.kind === "bank_statement") account += 3;
+  if (summary?.kind === "credit_card_bill") card += 3;
+
+  return { account, card };
+}
+
+function chooseOriginKind(
+  summary: FinancialDocumentSummary | null,
+  fileName: string | undefined,
+  source: TxSource,
+  documentText?: string,
+): TxOriginKind {
+  if (source === "manual") return "manual";
+  const scores = evidenceScores(summary, fileName, source, documentText);
+  if (scores.account > scores.card) return "bank_account";
+  if (scores.card > scores.account) return "credit_card";
+  if (summary?.kind === "bank_statement") return "bank_account";
+  if (summary?.kind === "credit_card_bill") return "credit_card";
+  return "unknown";
 }
 
 export function originFromDocument(
@@ -65,25 +94,14 @@ export function originFromDocument(
   source: TxSource,
   documentText?: string,
 ): ImportOrigin {
-  if (summary?.kind === "credit_card_bill") {
-    return {
-      originLabel: `Cartão ${summary.institution}`,
-      originInstitution: summary.institution,
-      originKind: "credit_card",
-      sourceFileName: fileName,
-    };
-  }
+  const hint = `${fileName ?? ""}\n${(documentText ?? "").slice(0, 20000)}`;
+  const summaryInstitution = summary?.institution && summary.institution !== "Instituição não identificada"
+    ? summary.institution
+    : undefined;
+  const institution = summaryInstitution ?? institutionFromHint(hint);
+  const kind = chooseOriginKind(summary, fileName, source, documentText);
 
-  if (summary?.kind === "bank_statement") {
-    return {
-      originLabel: `Conta ${summary.institution}`,
-      originInstitution: summary.institution,
-      originKind: "bank_account",
-      sourceFileName: fileName,
-    };
-  }
-
-  if (source === "manual") {
+  if (kind === "manual") {
     return {
       originLabel: "Lançamento manual",
       originKind: "manual",
@@ -91,15 +109,7 @@ export function originFromDocument(
     };
   }
 
-  const hint = `${fileName ?? ""}\n${(documentText ?? "").slice(0, 16000)}`;
-  const institution = institutionFromHint(hint);
-  const isCard = strongCardEvidence(fileName, documentText);
-  const isAccount = strongAccountEvidence(documentText);
-
-  // CSV/Excel bancário é tratado como conta por padrão. A simples menção a
-  // "cartão" dentro de um lançamento (ex.: pagamento de fatura ou Pix no crédito)
-  // não pode transformar o extrato inteiro em fatura de cartão.
-  if (institution && source === "sheet" && !isCard) {
+  if (institution && kind === "bank_account") {
     return {
       originLabel: `Conta ${institution}`,
       originInstitution: institution,
@@ -108,17 +118,7 @@ export function originFromDocument(
     };
   }
 
-  // Em PDFs, sinais de extrato prevalecem sobre menções soltas a cartão.
-  if (institution && isAccount && !isCard) {
-    return {
-      originLabel: `Conta ${institution}`,
-      originInstitution: institution,
-      originKind: "bank_account",
-      sourceFileName: fileName,
-    };
-  }
-
-  if (institution && isCard) {
+  if (institution && kind === "credit_card") {
     return {
       originLabel: `Cartão ${institution}`,
       originInstitution: institution,
@@ -127,28 +127,30 @@ export function originFromDocument(
     };
   }
 
-  if (institution && isAccount) {
-    return {
-      originLabel: `Conta ${institution}`,
-      originInstitution: institution,
-      originKind: "bank_account",
-      sourceFileName: fileName,
-    };
-  }
-
   const sourceLabel = source === "sheet" ? "Planilha importada" : source === "pdf" ? "PDF importado" : "Foto importada";
   return {
     originLabel: sourceLabel,
+    originInstitution: institution,
     originKind: "unknown",
     sourceFileName: fileName,
   };
 }
 
-export function paymentMethodForItem(item: Pick<ExtractedItem, "merchant" | "description" | "type" | "nature">, origin: ImportOrigin) {
-  if (origin.originKind === "credit_card") return "Crédito";
-  if (origin.originKind === "manual") return "Manual";
-
+export function paymentMethodForItem(
+  item: Pick<ExtractedItem, "merchant" | "description" | "type" | "nature">,
+  origin: ImportOrigin,
+) {
   const text = normalize(`${item.merchant} ${item.description}`);
+
+  // A natureza do lançamento prevalece sobre a origem do documento. Uma
+  // transferência continua sendo transferência mesmo se um arquivo tiver sido
+  // identificado incorretamente como cartão.
+  if (item.nature === "transfer") return "Transferência";
+  if (item.nature === "investment") return "Investimento";
+  if (item.nature === "card_payment") return "Pagamento de fatura";
+  if (item.nature === "financing") return "Crédito / financiamento";
+  if (item.nature === "neutral") return "Movimento neutro";
+
   if (/\bpix\b/.test(text)) return "Pix";
   if (/\bboleto\b/.test(text)) return "Boleto";
   if (/\bted\b|\btransferencia\b|\btransf\b/.test(text)) return "Transferência";
@@ -156,6 +158,8 @@ export function paymentMethodForItem(item: Pick<ExtractedItem, "merchant" | "des
   if (/\bsalario\b|\bremuneracao\b/.test(text)) return "Crédito em conta";
   if (/\biof\b|\bjuros\b|\btarifa\b|\bseguro\b/.test(text)) return "Débito em conta";
 
+  if (origin.originKind === "credit_card") return "Crédito";
+  if (origin.originKind === "manual") return "Manual";
   if (origin.originKind === "bank_account") {
     return item.type === "income" ? "Crédito em conta" : "Débito em conta";
   }
