@@ -29,6 +29,18 @@ function sameAmount(a: number, b: number) {
   return Math.abs(a - b) < 0.005;
 }
 
+export function findExactDuplicate(item: ExtractedItem, transactions: Transaction[]) {
+  return (
+    transactions.find(
+      (transaction) =>
+        transaction.type === item.type &&
+        sameAmount(transaction.amount, item.amount) &&
+        transaction.date === item.date &&
+        sharesExactText(item, transaction),
+    ) ?? null
+  );
+}
+
 export function flagImportDuplicates(items: ExtractedItem[], transactions: Transaction[]) {
   let possibleCount = 0;
   let exactCount = 0;
