@@ -17,6 +17,19 @@ const ESSENTIAL_CATEGORIES = new Set<CategoryId>([
   "educacao",
 ]);
 
+function validMonthKey(value: string | undefined) {
+  return Boolean(value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value));
+}
+
+/**
+ * Mês usado nos relatórios. Cartão segue a competência da fatura; os demais
+ * movimentos continuam seguindo a data real do lançamento.
+ */
+export function transactionMonth(t: Pick<Transaction, "date" | "originKind" | "competenceMonth">) {
+  if (t.originKind === "credit_card" && validMonthKey(t.competenceMonth)) return t.competenceMonth!;
+  return monthKey(t.date);
+}
+
 export function monthTransactions(
   state: FinanceState,
   key: string,
@@ -24,7 +37,7 @@ export function monthTransactions(
   includeOutsideBudget = false,
 ) {
   return state.transactions.filter((t) => {
-    if (monthKey(t.date) !== key) return false;
+    if (transactionMonth(t) !== key) return false;
     if (!includeScheduled && t.status === "scheduled") return false;
     if (!includeOutsideBudget && !countsInBudget(t)) return false;
     return true;
@@ -56,12 +69,20 @@ export function expensesOf(rows: Transaction[]) {
   return rows.filter((t) => countsInBudget(t) && t.type === "expense");
 }
 
+function isCardCredit(t: Transaction) {
+  return countsInBudget(t) && t.type === "income" && t.originKind === "credit_card";
+}
+
 export function refundsOf(rows: Transaction[]) {
-  return rows.filter((t) => countsInBudget(t) && t.type === "income" && isExpenseRefund(t));
+  return rows.filter(
+    (t) => countsInBudget(t) && t.type === "income" && (isExpenseRefund(t) || isCardCredit(t)),
+  );
 }
 
 export function incomeOf(rows: Transaction[]) {
-  return rows.filter((t) => countsInBudget(t) && t.type === "income" && !isExpenseRefund(t));
+  return rows.filter(
+    (t) => countsInBudget(t) && t.type === "income" && !isExpenseRefund(t) && !isCardCredit(t),
+  );
 }
 
 function netExpense(rows: Transaction[]) {
@@ -132,11 +153,15 @@ export function upcomingInstallments(state: FinanceState, fromIso: string, limit
 
 export function planProgress(state: FinanceState, planId: string) {
   const txs = state.transactions.filter((t) => t.installmentId === planId);
-  const paid = txs.filter((t) => t.status === "posted").length;
+  const plan = state.plans.find((p) => p.id === planId);
+  const importedPast = plan?.importedCurrentIndex ? Math.max(0, plan.importedCurrentIndex - 1) : 0;
+  const paidVisible = txs.filter((t) => t.status === "posted").length;
+  const total = plan?.totalCount ?? txs.length;
+  const paid = Math.min(total, importedPast + paidVisible);
   const remaining = txs.filter((t) => t.status === "scheduled");
   const remainingAmount = sumBy(remaining, (t) => t.amount);
   const next = remaining.sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
-  return { paid, total: txs.length, remainingAmount, next };
+  return { paid, total, remainingAmount, next };
 }
 
 export function committedFuture(state: FinanceState, fromIso: string) {
