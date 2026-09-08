@@ -32,6 +32,14 @@ function parseMoney(raw: string | undefined) {
   return Number.isFinite(value) ? value : null;
 }
 
+function firstMoney(text: string, patterns: RegExp[]) {
+  for (const pattern of patterns) {
+    const value = parseMoney(text.match(pattern)?.[1]);
+    if (value !== null && value > 0) return value;
+  }
+  return null;
+}
+
 function isoFromBr(raw: string | undefined) {
   if (!raw) return null;
   const match = raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
@@ -110,16 +118,56 @@ function bankStatementSummary(text: string): FinancialDocumentSummary | null {
   };
 }
 
+function officialCardBillTotal(text: string, institution: string) {
+  // Campos que representam explicitamente a quitação integral da fatura.
+  const explicit = firstMoney(text, [
+    /Pagamento total da fatura\s*:?[\s\n]*R\$\s*([\d.]+,\d{2})/i,
+    /Total desta fatura\s*:?[\s\n]*R?\$?\s*([\d.]+,\d{2})/i,
+    /Valor total da fatura\s*:?[\s\n]*R\$\s*([\d.]+,\d{2})/i,
+    /O total da sua fatura\s+(?:é|e)\s*:?[\s\n]*R\$\s*([\d.]+,\d{2})/i,
+  ]);
+  if (explicit !== null) return explicit;
+
+  // O Nubank usa "Total a pagar" no resumo oficial, mas repete a mesma expressão
+  // em simulações e financiamentos. Só aceitamos quando estiver dentro do resumo.
+  if (institution === "Nubank") {
+    const nubankSummary = text.match(/RESUMO DA FATURA ATUAL[\s\S]{0,1400}/i)?.[0] ?? "";
+    const nubankTotal = firstMoney(nubankSummary, [
+      /Total a pagar\s*:?[\s\n]*R\$\s*([\d.]+,\d{2})/i,
+    ]);
+    if (nubankTotal !== null) return nubankTotal;
+
+    const coverTotal = firstMoney(text.slice(0, 5000), [
+      /(?:Esta é|Esta e) a sua fatura[\s\S]{0,160}?no valor de\s*R\$\s*([\d.]+,\d{2})/i,
+    ]);
+    if (coverTotal !== null) return coverTotal;
+  }
+
+  // No Itaú, o boleto/recibo repete o valor principal como "Valor do Documento".
+  // É um fallback seguro depois de procurar "Total desta fatura".
+  if (institution === "Itaú") {
+    const itauTotal = firstMoney(text, [
+      /Valor do Documento\s*R\$\s*([\d.]+,\d{2})/i,
+      /Lançamentos atuais\s*([\d.]+,\d{2})/i,
+    ]);
+    if (itauTotal !== null) return itauTotal;
+  }
+
+  // Fallback conservador para outros emissores: só usa "Total a pagar" se houver
+  // uma única ocorrência monetária no documento. Assim, simulações não viram fatura.
+  const genericMatches = [...text.matchAll(/\bTotal a pagar\s*:?[\s\n]*R\$\s*([\d.]+,\d{2})/gi)];
+  if (genericMatches.length === 1) return parseMoney(genericMatches[0][1]);
+
+  return null;
+}
+
 function cardBillSummary(text: string, today: string): FinancialDocumentSummary | null {
   const normalized = normalize(text.slice(0, 12000));
   if (!/fatura/.test(normalized) || !/vencimento|total a pagar|total desta fatura/.test(normalized)) return null;
 
   const currentYear = Number(today.slice(0, 4));
-  const totalMatch =
-    text.match(/Total a pagar\s*:?[\s\n]*R\$\s*([\d.]+,\d{2})/i) ??
-    text.match(/Total desta fatura\s*R?\$?\s*([\d.]+,\d{2})/i) ??
-    text.match(/O total da sua fatura[^\d]{0,80}([\d.]+,\d{2})/i);
-  const total = parseMoney(totalMatch?.[1]);
+  const institution = institutionFrom(text);
+  const total = officialCardBillTotal(text, institution);
   if (total === null || total <= 0) return null;
 
   const dueBr = text.match(/(?:Data de Vencimento|Vencimento)\D{0,80}(\d{2}\/\d{2}\/\d{4})/i);
@@ -138,7 +186,7 @@ function cardBillSummary(text: string, today: string): FinancialDocumentSummary 
   return {
     id: "",
     kind: "credit_card_bill",
-    institution: institutionFrom(text),
+    institution,
     holderName: holderFrom(text),
     importedAt: "",
     billTotal: total,
