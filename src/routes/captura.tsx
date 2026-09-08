@@ -101,6 +101,20 @@ function CapturaPage() {
       const holderNames = [summary?.holderName, ...summaries.map((item) => item.holderName)];
       const classified = applyKnownHolderTransfers(result.items, holderNames);
       const checked = flagImportDuplicates(classified, transactions);
+
+      // Se o documento já foi importado e todos os lançamentos foram reconhecidos como
+      // duplicados exatos, ainda precisamos permitir atualizar saldo/total/vencimento.
+      // Nesse caso salvamos apenas o resumo determinístico e não criamos nova transação.
+      if (summary && checked.items.length > 0 && checked.items.every((item) => !item.selected)) {
+        addSummary(summary);
+        toast.success("Dados do documento atualizados. Nenhum lançamento duplicado foi adicionado.");
+        setDocumentSummary(null);
+        setDuplicateSummary(null);
+        setItems(null);
+        void navigate({ to: "/" });
+        return;
+      }
+
       setDuplicateSummary(checked.summary);
       setItems(checked.items);
     } catch (err) {
