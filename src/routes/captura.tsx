@@ -13,9 +13,14 @@ import {
   summarizeFinancialDocument,
 } from "@/lib/document-summary";
 import { useDocumentStore } from "@/lib/document-store";
-import { flagImportDuplicates, type DuplicateSummary } from "@/lib/duplicates";
+import { findExactDuplicate, flagImportDuplicates, type DuplicateSummary } from "@/lib/duplicates";
 import { formatBRL } from "@/lib/money";
 import { useFinanceStore } from "@/lib/store";
+import {
+  originFromDocument,
+  paymentMethodForItem,
+  type ImportOrigin,
+} from "@/lib/transaction-origin";
 import type { CategoryId, ExtractedItem, FinancialDocumentSummary, TxSource } from "@/lib/types";
 import { cn, todayIso, uid } from "@/lib/utils";
 
@@ -41,6 +46,7 @@ function CapturaPage() {
   const [items, setItems] = useState<ExtractedItem[] | null>(null);
   const [documentSummary, setDocumentSummary] = useState<FinancialDocumentSummary | null>(null);
   const [duplicateSummary, setDuplicateSummary] = useState<DuplicateSummary | null>(null);
+  const [importOrigin, setImportOrigin] = useState<ImportOrigin | null>(null);
   const [source, setSource] = useState<TxSource>("photo");
   const [quick, setQuick] = useState(false);
   const [digits, setDigits] = useState("");
@@ -50,19 +56,40 @@ function CapturaPage() {
 
   const amount = digits ? Number(digits) / 100 : 0;
 
+  function enrichExistingOrigins(importedItems: ExtractedItem[], origin: ImportOrigin) {
+    let updated = 0;
+    for (const item of importedItems) {
+      const existing = findExactDuplicate(item, transactions);
+      if (!existing) continue;
+      updateTransaction(existing.id, {
+        originLabel: origin.originLabel,
+        originInstitution: origin.originInstitution,
+        originKind: origin.originKind,
+        sourceFileName: origin.sourceFileName,
+        paymentMethod: paymentMethodForItem(item, origin),
+      });
+      updated += 1;
+    }
+    return updated;
+  }
+
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
+    const file = files[0];
     setAccountId(null);
     setDocumentSummary(null);
     setDuplicateSummary(null);
+    setImportOrigin(null);
     setBusy(true);
     setStatus("Preparando arquivo…");
     try {
       const { prepareFile } = await import("@/lib/extract-client");
-      const prepared = await prepareFile(files[0]);
+      const prepared = await prepareFile(file);
       setSource(prepared.source);
       const summary = summarizeFinancialDocument(prepared.text, todayIso());
+      const origin = originFromDocument(summary, file.name, prepared.source);
       setDocumentSummary(summary);
+      setImportOrigin(origin);
       if (summary?.kind === "bank_statement") {
         const candidates = accounts.filter(
           (account) =>
@@ -102,16 +129,21 @@ function CapturaPage() {
       const classified = applyKnownHolderTransfers(result.items, holderNames);
       const checked = flagImportDuplicates(classified, transactions);
 
-      // Se o documento já foi importado e todos os lançamentos foram reconhecidos como
-      // duplicados exatos, ainda precisamos permitir atualizar saldo/total/vencimento.
-      // Nesse caso salvamos apenas o resumo determinístico e não criamos nova transação.
-      if (summary && checked.items.length > 0 && checked.items.every((item) => !item.selected)) {
-        addSummary(summary);
-        toast.success("Dados do documento atualizados. Nenhum lançamento duplicado foi adicionado.");
+      // Mesmo quando tudo já existe, a reimportação é útil para gravar a origem
+      // do lançamento (Cartão Nubank, Conta Itaú etc.) sem criar duplicidades.
+      if (checked.items.length > 0 && checked.items.every((item) => !item.selected)) {
+        const enriched = enrichExistingOrigins(checked.items, origin);
+        if (summary) addSummary(summary);
+        toast.success(
+          enriched > 0
+            ? `Origem atualizada em ${enriched} lançamento${enriched === 1 ? "" : "s"}. Nenhum duplicado foi adicionado.`
+            : "Documento conferido. Nenhum lançamento duplicado foi adicionado.",
+        );
         setDocumentSummary(null);
         setDuplicateSummary(null);
+        setImportOrigin(null);
         setItems(null);
-        void navigate({ to: "/" });
+        void navigate({ to: "/extrato" });
         return;
       }
 
@@ -130,6 +162,7 @@ function CapturaPage() {
     setAccountId(null);
     setDocumentSummary(null);
     setDuplicateSummary(null);
+    setImportOrigin({ originLabel: "Exemplo", originKind: "unknown" });
     setSource("photo");
     setItems([
       {
@@ -171,6 +204,7 @@ function CapturaPage() {
           setItems(null);
           setDocumentSummary(null);
           setDuplicateSummary(null);
+          setImportOrigin(null);
         }}
         onConfirm={() => {
           const holderNames = [documentSummary?.holderName, ...summaries.map((item) => item.holderName)];
@@ -181,12 +215,14 @@ function CapturaPage() {
               }
             }
           }
-          importExtracted(items, source, accountId);
+          if (importOrigin) enrichExistingOrigins(items, importOrigin);
+          importExtracted(items, source, accountId, importOrigin ?? undefined);
           addSummary(documentSummary);
-          toast.success(documentSummary ? "Lançamentos e dados do documento adicionados" : "Lançamentos adicionados");
+          toast.success(documentSummary ? "Lançamentos, origem e dados do documento adicionados" : "Lançamentos adicionados");
           setItems(null);
           setDocumentSummary(null);
           setDuplicateSummary(null);
+          setImportOrigin(null);
           void navigate({ to: "/extrato" });
         }}
       />
