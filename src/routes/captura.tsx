@@ -7,10 +7,16 @@ import { CategoryPicker } from "@/components/category-picker";
 import { PersonAvatar } from "@/components/person-avatar";
 import { Button } from "@/components/ui/button";
 import { extractDocument } from "@/lib/ai";
+import {
+  applyKnownHolderTransfers,
+  matchesKnownHolderTransfer,
+  summarizeFinancialDocument,
+} from "@/lib/document-summary";
+import { useDocumentStore } from "@/lib/document-store";
 import { flagImportDuplicates, type DuplicateSummary } from "@/lib/duplicates";
 import { formatBRL } from "@/lib/money";
 import { useFinanceStore } from "@/lib/store";
-import type { CategoryId, ExtractedItem, TxSource } from "@/lib/types";
+import type { CategoryId, ExtractedItem, FinancialDocumentSummary, TxSource } from "@/lib/types";
 import { cn, todayIso, uid } from "@/lib/utils";
 
 export const Route = createFileRoute("/captura")({ component: CapturaPage });
@@ -21,7 +27,10 @@ function CapturaPage() {
   const transactions = useFinanceStore((s) => s.transactions);
   const geminiKey = useFinanceStore((s) => s.geminiKey);
   const importExtracted = useFinanceStore((s) => s.importExtracted);
+  const updateTransaction = useFinanceStore((s) => s.updateTransaction);
   const addQuick = useFinanceStore((s) => s.addQuickExpense);
+  const summaries = useDocumentStore((s) => s.summaries);
+  const addSummary = useDocumentStore((s) => s.addSummary);
   const navigate = useNavigate();
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
@@ -30,6 +39,7 @@ function CapturaPage() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Lendo documento…");
   const [items, setItems] = useState<ExtractedItem[] | null>(null);
+  const [documentSummary, setDocumentSummary] = useState<FinancialDocumentSummary | null>(null);
   const [duplicateSummary, setDuplicateSummary] = useState<DuplicateSummary | null>(null);
   const [source, setSource] = useState<TxSource>("photo");
   const [quick, setQuick] = useState(false);
@@ -43,6 +53,7 @@ function CapturaPage() {
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
     setAccountId(null);
+    setDocumentSummary(null);
     setDuplicateSummary(null);
     setBusy(true);
     setStatus("Preparando arquivo…");
@@ -50,9 +61,20 @@ function CapturaPage() {
       const { prepareFile } = await import("@/lib/extract-client");
       const prepared = await prepareFile(files[0]);
       setSource(prepared.source);
+      const summary = summarizeFinancialDocument(prepared.text, todayIso());
+      setDocumentSummary(summary);
+      if (summary?.kind === "bank_statement") {
+        const candidates = accounts.filter(
+          (account) =>
+            account.active &&
+            account.institution.trim().toLowerCase() === summary.institution.trim().toLowerCase(),
+        );
+        if (candidates.length === 1) setAccountId(candidates[0].id);
+      }
+
       setStatus(
         prepared.source === "pdf"
-          ? "Lendo fatura e compras…"
+          ? "Lendo fatura, saldo e compras…"
           : "Extraindo lançamentos…",
       );
       const casa = people.find((p) => p.role === "other") ?? people[0];
@@ -76,7 +98,9 @@ function CapturaPage() {
         return;
       }
 
-      const checked = flagImportDuplicates(result.items, transactions);
+      const holderNames = [summary?.holderName, ...summaries.map((item) => item.holderName)];
+      const classified = applyKnownHolderTransfers(result.items, holderNames);
+      const checked = flagImportDuplicates(classified, transactions);
       setDuplicateSummary(checked.summary);
       setItems(checked.items);
     } catch (err) {
@@ -90,6 +114,7 @@ function CapturaPage() {
     const casa = people.find((p) => p.role === "other") ?? people[0];
     const today = todayIso();
     setAccountId(null);
+    setDocumentSummary(null);
     setDuplicateSummary(null);
     setSource("photo");
     setItems([
@@ -130,12 +155,23 @@ function CapturaPage() {
         onChange={setItems}
         onCancel={() => {
           setItems(null);
+          setDocumentSummary(null);
           setDuplicateSummary(null);
         }}
         onConfirm={() => {
+          const holderNames = [documentSummary?.holderName, ...summaries.map((item) => item.holderName)];
+          if (documentSummary?.holderName) {
+            for (const transaction of transactions) {
+              if (matchesKnownHolderTransfer(transaction, holderNames)) {
+                updateTransaction(transaction.id, { nature: "transfer" });
+              }
+            }
+          }
           importExtracted(items, source, accountId);
-          toast.success("Lançamentos adicionados");
+          addSummary(documentSummary);
+          toast.success(documentSummary ? "Lançamentos e dados do documento adicionados" : "Lançamentos adicionados");
           setItems(null);
+          setDocumentSummary(null);
           setDuplicateSummary(null);
           void navigate({ to: "/extrato" });
         }}
@@ -237,7 +273,7 @@ function CapturaPage() {
       <p className="text-xs font-medium tracking-wide text-muted uppercase">Captura</p>
       <h1 className="font-display text-3xl tracking-tight">Menos digitação</h1>
       <p className="mt-2 max-w-[34ch] text-sm leading-relaxed text-muted">
-        Foto da nota, fatura em PDF ou planilha. O Núcleo lê, categoriza e monta as parcelas.
+        Foto da nota, fatura em PDF ou planilha. O Núcleo lê compras, saldos, vencimentos e movimentações.
       </p>
 
       <input
