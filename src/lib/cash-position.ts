@@ -6,8 +6,20 @@ function monthEnd(key: string) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function normalizeKeyPart(value: string | undefined) {
+  return (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 function summaryAccountKey(summary: FinancialDocumentSummary) {
-  return `${summary.institution.toLowerCase()}|${(summary.holderName ?? "").toLowerCase()}`;
+  return `${normalizeKeyPart(summary.institution)}|${normalizeKeyPart(summary.holderName)}`;
+}
+
+function billIdentityKey(summary: FinancialDocumentSummary) {
+  return [
+    normalizeKeyPart(summary.institution),
+    normalizeKeyPart(summary.holderName),
+    summary.referenceMonth,
+  ].join("|");
 }
 
 export type CashPosition = {
@@ -47,16 +59,21 @@ export function cashPositionForMonth(
   });
   const cashBalance = selectedStatements.reduce((sum, summary) => sum + (summary.balance ?? 0), 0);
 
-  const bills = summaries.filter(
-    (summary) =>
-      summary.kind === "credit_card_bill" &&
-      summary.referenceMonth === month &&
-      typeof summary.billTotal === "number" &&
-      summary.billTotal! > 0,
-  );
+  const bills = summaries
+    .filter(
+      (summary) =>
+        summary.kind === "credit_card_bill" &&
+        summary.referenceMonth === month &&
+        typeof summary.billTotal === "number" &&
+        summary.billTotal! > 0,
+    )
+    .sort((a, b) => (b.importedAt ?? "").localeCompare(a.importedAt ?? ""));
+
+  // Pode existir um resumo antigo da mesma fatura salvo com um vencimento extraído
+  // de forma diferente. Para o caixa usamos apenas a versão importada mais recentemente.
   const billMap = new Map<string, FinancialDocumentSummary>();
   for (const bill of bills) {
-    const key = `${bill.institution.toLowerCase()}|${bill.dueDate ?? bill.referenceMonth}`;
+    const key = billIdentityKey(bill);
     if (!billMap.has(key)) billMap.set(key, bill);
   }
   const uniqueBills = [...billMap.values()];
