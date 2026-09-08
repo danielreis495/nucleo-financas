@@ -4,7 +4,9 @@ import { toast } from "sonner";
 import { Loader2, ShieldCheck, Sparkles, Target, WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { adviseSpending } from "@/lib/ai";
+import { cashPositionForMonth } from "@/lib/cash-position";
 import { categoryLabel } from "@/lib/categories";
+import { useDocumentStore } from "@/lib/document-store";
 import { formatBRL, formatMonthTitle } from "@/lib/money";
 import {
   budgetUsage,
@@ -18,11 +20,14 @@ import {
   type FinancialSnapshot,
 } from "@/lib/selectors";
 import { useFinanceStore } from "@/lib/store";
-import { addMonthsKey, cn, todayIso } from "@/lib/utils";
+import { addMonthsKey, cn, todayIso, uid } from "@/lib/utils";
 
 export const Route = createFileRoute("/conselhos")({ component: ConselhosPage });
 
-function diagnosis(snapshot: FinancialSnapshot) {
+function diagnosis(snapshot: FinancialSnapshot, netAvailable: number | null) {
+  if (netAvailable !== null && netAvailable < 0) {
+    return `O orçamento pode até mostrar resultado positivo, mas o caixa identificado fica ${formatBRL(Math.abs(netAvailable))} negativo depois das faturas. A prioridade é liquidez, não poupança.`;
+  }
   if (snapshot.income <= 0) {
     return "Ainda não tenho uma entrada de renda registrada neste mês. Capture seu holerite ou extrato para eu montar um diagnóstico confiável.";
   }
@@ -36,12 +41,13 @@ function diagnosis(snapshot: FinancialSnapshot) {
     return `Seu mês ainda fecha positivo, mas as parcelas estão ocupando ${(snapshot.installmentRatio * 100).toFixed(0)}% da renda registrada. Vale proteger sua margem antes de assumir novas prestações.`;
   }
   if (snapshot.margin / snapshot.income >= 0.2) {
-    return `Seu orçamento tem uma margem saudável de ${formatBRL(snapshot.margin)}. O próximo passo é transformar parte dessa sobra em reserva, sem apertar o mês.`;
+    return `Seu orçamento tem uma margem positiva de ${formatBRL(snapshot.margin)}. Antes de chamar isso de sobra, confira também o caixa real e as faturas do período.`;
   }
-  return `Seu orçamento está equilibrado, com margem prevista de ${formatBRL(snapshot.margin)}. O foco agora é manter o ritmo e evitar que gastos variáveis consumam essa sobra.`;
+  return `Seu orçamento está equilibrado, com resultado previsto de ${formatBRL(snapshot.margin)}. O foco agora é manter o ritmo e proteger o caixa disponível.`;
 }
 
-function healthLabel(status: FinancialSnapshot["status"]) {
+function healthLabel(status: FinancialSnapshot["status"], netAvailable: number | null) {
+  if (netAvailable !== null && netAvailable < 0) return "Caixa apertado";
   if (status === "Saudavel") return "Saudável";
   if (status === "Atencao") return "Atenção";
   if (status === "Critica") return "Crítica";
@@ -51,6 +57,8 @@ function healthLabel(status: FinancialSnapshot["status"]) {
 function ConselhosPage() {
   const state = useFinanceStore();
   const month = state.viewMonth;
+  const summaries = useDocumentStore((s) => s.summaries);
+  const cash = cashPositionForMonth(summaries, month);
   const setAdvice = useFinanceStore((s) => s.setAdvice);
   const [busy, setBusy] = useState(false);
   const cached = state.advice?.monthKey === month ? state.advice : null;
@@ -58,17 +66,20 @@ function ConselhosPage() {
   const rows = monthTransactions(state, month);
   const topCategory = spendByCategory(rows)[0] ?? null;
   const futureCommitted = committedFuture(state, todayIso());
+  const liquidityDeficit = cash.netAvailable !== null && cash.netAvailable < 0 ? Math.abs(cash.netAvailable) : 0;
 
   const priorities: string[] = [];
+  if (liquidityDeficit > 0) {
+    priorities.push(`Cobrir ${formatBRL(liquidityDeficit)} de déficit de caixa identificado após as faturas.`);
+  }
   if (snapshot.income <= 0) {
     priorities.push("Registrar a renda do mês para liberar um diagnóstico completo.");
-    priorities.push("Vincular os próximos lançamentos às contas corretas.");
     priorities.push("Manter gastos e parcelas atualizados para o Núcleo aprender seu padrão.");
   } else {
     if (snapshot.margin < 0) {
       priorities.push(`Reduzir pelo menos ${formatBRL(snapshot.recoveryTarget)} para voltar ao positivo com uma pequena margem.`);
-    } else {
-      priorities.push(`Proteger a margem prevista de ${formatBRL(snapshot.margin)} até o fechamento do mês.`);
+    } else if (liquidityDeficit === 0) {
+      priorities.push(`Proteger o resultado previsto de ${formatBRL(snapshot.margin)} até o fechamento do mês.`);
     }
     if (snapshot.installmentExpense > 0) {
       priorities.push(
@@ -77,7 +88,7 @@ function ConselhosPage() {
           : `Acompanhar ${formatBRL(snapshot.installmentExpense)} em parcelas neste mês antes de assumir novas prestações.`,
       );
     } else {
-      priorities.push("Evitar criar novas parcelas sem antes simular o impacto no orçamento.");
+      priorities.push("Evitar criar novas parcelas sem antes simular o impacto no caixa.");
     }
     if (topCategory) {
       priorities.push(`Revisar ${categoryLabel(topCategory.category, state.customCategories)}, hoje sua maior categoria de gasto em ${formatBRL(topCategory.amount)}.`);
@@ -87,25 +98,30 @@ function ConselhosPage() {
   }
 
   const goal =
-    snapshot.income <= 0
+    liquidityDeficit > 0
       ? {
-          title: "Completar o Raio-X",
-          body: "Registre ao menos uma entrada de renda neste mês. O holerite pode ser enviado pela Captura.",
+          title: `Recuperar ${formatBRL(liquidityDeficit)} de caixa`,
+          body: "Antes de guardar dinheiro, cubra o que falta entre os saldos finais identificados e as faturas ligadas ao mês.",
         }
-      : snapshot.margin < 0
+      : snapshot.income <= 0
         ? {
-            title: `Recuperar ${formatBRL(snapshot.recoveryTarget)}`,
-            body: "Essa é a redução estimada para sair do negativo e terminar o mês com uma pequena margem de segurança.",
+            title: "Completar o Raio-X",
+            body: "Registre ao menos uma entrada de renda neste mês. O holerite pode ser enviado pela Captura.",
           }
-        : snapshot.suggestedSavings > 0
+        : snapshot.margin < 0
           ? {
-              title: `Guardar ${formatBRL(snapshot.suggestedSavings)} neste mês`,
-              body: "Meta inicial calculada pela sua margem atual. Ela é propositalmente menor que a sobra para não apertar seu caixa.",
+              title: `Recuperar ${formatBRL(snapshot.recoveryTarget)}`,
+              body: "Essa é a redução estimada para sair do negativo e terminar o mês com uma pequena margem de segurança.",
             }
-          : {
-              title: "Fechar o mês no azul",
-              body: "Por enquanto, preservar a margem atual é mais importante do que forçar uma meta de investimento.",
-            };
+          : snapshot.suggestedSavings > 0 && cash.netAvailable !== null
+            ? {
+                title: `Guardar até ${formatBRL(Math.min(snapshot.suggestedSavings, Math.max(0, cash.netAvailable)))}`,
+                body: "A meta respeita tanto o resultado do orçamento quanto o caixa líquido identificado depois das faturas.",
+              }
+            : {
+                title: "Fechar o mês no azul",
+                body: "Por enquanto, preservar o caixa é mais importante do que forçar uma meta de investimento.",
+              };
 
   async function run() {
     setBusy(true);
@@ -170,11 +186,30 @@ function ConselhosPage() {
         toast.error(result.error);
         return;
       }
+
+      const savingsPattern = /guardar|poupar|investir|reserva/i;
+      const filteredItems = liquidityDeficit > 0
+        ? result.items.filter((item) => !savingsPattern.test(`${item.title} ${item.body}`))
+        : result.items;
+      const liquidityItem = liquidityDeficit > 0
+        ? {
+            id: uid(),
+            title: "Primeiro: recompor o caixa",
+            body: `Os saldos finais identificados menos as faturas deixam ${formatBRL(liquidityDeficit)} descobertos. Priorize esse valor antes de poupar ou assumir novas parcelas.`,
+            impact: 0,
+            category: null,
+            severity: "high" as const,
+          }
+        : null;
+
       setAdvice({
         monthKey: month,
         generatedAt: new Date().toISOString(),
-        summary: result.summary,
-        items: result.items,
+        summary:
+          liquidityDeficit > 0
+            ? `O resultado do orçamento não representa dinheiro livre. O caixa líquido identificado está negativo em ${formatBRL(liquidityDeficit)}. ${result.summary}`
+            : result.summary,
+        items: liquidityItem ? [liquidityItem, ...filteredItems].slice(0, 6) : filteredItems,
       });
     } catch {
       toast.error("Não consegui analisar agora.");
@@ -188,7 +223,7 @@ function ConselhosPage() {
       <p className="text-xs font-medium tracking-wide text-muted uppercase">Consultor financeiro</p>
       <h1 className="font-display text-3xl tracking-tight">Raio-X de {formatMonthTitle(month)}</h1>
       <p className="mt-2 text-sm leading-relaxed text-muted">
-        Primeiro os números. Depois a orientação. O diagnóstico abaixo é calculado pelo Núcleo a partir dos seus lançamentos.
+        O Núcleo separa resultado do orçamento de caixa real. As orientações abaixo priorizam liquidez quando houver faturas sem cobertura.
       </p>
 
       <section className="mt-5 rounded-xl bg-primary px-5 py-5 text-primary-fg">
@@ -200,26 +235,26 @@ function ConselhosPage() {
             </p>
           </div>
           <span className="rounded-full bg-primary-fg/10 px-3 py-1 text-xs font-medium">
-            {healthLabel(snapshot.status)}
+            {healthLabel(snapshot.status, cash.netAvailable)}
           </span>
         </div>
-        <p className="mt-3 text-sm leading-relaxed text-primary-fg/85">{diagnosis(snapshot)}</p>
+        <p className="mt-3 text-sm leading-relaxed text-primary-fg/85">{diagnosis(snapshot, cash.netAvailable)}</p>
       </section>
 
       <section className="mt-5">
         <h2 className="font-display text-xl">Seu dinheiro</h2>
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <Metric label="Entradas" value={formatBRL(snapshot.income)} />
+          <Metric label="Entradas do orçamento" value={formatBRL(snapshot.income)} />
           <Metric label="Saídas realizadas" value={formatBRL(snapshot.postedExpense)} />
-          <Metric label="Essenciais" value={formatBRL(snapshot.essentialExpense)} />
-          <Metric label="Variáveis" value={formatBRL(snapshot.variableExpense)} />
+          <Metric label="Saldo nas contas" value={cash.cashKnown ? formatBRL(cash.cashBalance) : "—"} />
+          <Metric label="Faturas a pagar" value={cash.billsKnown ? formatBRL(cash.billsDue) : "—"} />
+          <Metric label="Disponível líquido" value={cash.netAvailable === null ? "—" : formatBRL(cash.netAvailable)} />
           <Metric label="Parcelas no mês" value={formatBRL(snapshot.installmentExpense)} />
-          <Metric label="Ainda agendado" value={formatBRL(snapshot.scheduledExpense)} />
         </div>
         <div className="mt-2 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs text-muted">Margem prevista do mês</p>
+              <p className="text-xs text-muted">Resultado previsto do orçamento</p>
               <p className={cn("font-display text-2xl tabular-nums", snapshot.margin < 0 && "text-danger")}>
                 {formatBRL(snapshot.margin)}
               </p>
@@ -264,7 +299,7 @@ function ConselhosPage() {
           <h2 className="font-display text-xl">Orientação detalhada</h2>
         </div>
         <p className="mt-1 text-sm text-muted">
-          A IA recebe os números já calculados para explicar onde agir. Ela não define seu saldo nem faz as contas principais.
+          A IA recebe os números do orçamento; o Núcleo aplica por cima a regra de caixa real para não recomendar poupança quando houver déficit após faturas.
         </p>
         <Button className="mt-4 w-full" onClick={() => void run()} disabled={busy}>
           {busy ? (
@@ -317,7 +352,7 @@ function ConselhosPage() {
       </section>
 
       <p className="mt-6 text-center text-xs text-muted">
-        Base do diagnóstico: {snapshot.transactionCount} lançamento{snapshot.transactionCount === 1 ? "" : "s"}, {state.accounts.length} conta{state.accounts.length === 1 ? "" : "s"} e {state.plans.length} plano{state.plans.length === 1 ? "" : "s"} de parcelas.
+        Base: {snapshot.transactionCount} lançamento{snapshot.transactionCount === 1 ? "" : "s"}, {cash.cashSources} saldo{cash.cashSources === 1 ? "" : "s"} final{cash.cashSources === 1 ? "" : "is"}, {cash.billCount} fatura{cash.billCount === 1 ? "" : "s"} e {state.plans.length} plano{state.plans.length === 1 ? "" : "s"} de parcelas.
       </p>
     </main>
   );
