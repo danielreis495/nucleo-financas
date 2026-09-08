@@ -148,7 +148,7 @@ export function CaptureReview({
                   </p>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     {refund ? (
-                      <span className="rounded-full bg-income-soft px-2.5 py-1 text-xs font-medium text-income">
+                      <span className="rounded-full bg-line px-2.5 py-1 text-xs font-medium text-income">
                         Estorno / crédito
                       </span>
                     ) : null}
@@ -187,7 +187,10 @@ export function CaptureReview({
                       patch(item.id, {
                         ...next,
                         natureLocked: true,
-                        category: next.nature === "budget" && next.type === "income" ? "salario" : item.category,
+                        category:
+                          next.nature === "budget" && next.type === "income" && !refund
+                            ? "salario"
+                            : item.category,
                       })
                     }
                   />
@@ -197,7 +200,7 @@ export function CaptureReview({
                       <p className="mt-3 mb-2 text-xs font-medium text-muted">Categoria</p>
                       <CategoryPicker
                         value={item.category}
-                        group={item.type === "income" ? "entrada" : "gasto"}
+                        group={refund ? "gasto" : item.type === "income" ? "entrada" : "gasto"}
                         onChange={(id) => patch(item.id, { category: id })}
                       />
                     </>
