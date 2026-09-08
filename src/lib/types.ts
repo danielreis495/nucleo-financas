@@ -141,7 +141,6 @@ export type FinanceState = {
   plans: InstallmentPlan[];
   budgets: CategoryBudget[];
   customCategories: CustomCategory[];
-  documentSummaries: FinancialDocumentSummary[];
   advice: AdviceCache | null;
   demo: boolean;
 };
