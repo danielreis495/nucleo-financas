@@ -18,6 +18,7 @@ export function CashPositionCard({ month }: { month: string }) {
   const position = cashPositionForMonth(summaries, month);
   const refreshInput = useRef<HTMLInputElement>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshProgress, setRefreshProgress] = useState("");
 
   const billRows = (() => {
     const rows = summaries
@@ -38,15 +39,22 @@ export function CashPositionCard({ month }: { month: string }) {
     });
   })();
 
-  async function rebuildDocumentData(files: FileList | null) {
-    if (!files?.length) return;
+  async function rebuildDocumentData(files: File[]) {
+    if (!files.length) {
+      toast.error("Nenhum PDF foi selecionado.");
+      return;
+    }
+
     setRefreshing(true);
+    setRefreshProgress(`Preparando ${files.length} arquivo${files.length === 1 ? "" : "s"}…`);
     try {
       const { prepareFile } = await import("@/lib/extract-client");
       const parsed = [];
       const failed: string[] = [];
 
-      for (const file of Array.from(files)) {
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        setRefreshProgress(`Lendo ${index + 1} de ${files.length}: ${file.name}`);
         try {
           const prepared = await prepareFile(file);
           const summary = summarizeFinancialDocument(prepared.text, todayIso());
@@ -62,7 +70,7 @@ export function CashPositionCard({ month }: { month: string }) {
 
       if (failed.length > 0) {
         toast.error(
-          `Não consegui identificar saldo/fatura em ${failed.length} arquivo${failed.length === 1 ? "" : "s"}. Nada foi alterado.`,
+          `Não consegui identificar saldo/fatura em ${failed.length} arquivo${failed.length === 1 ? "" : "s"}: ${failed.join(", ")}. Nada foi alterado.`,
         );
         return;
       }
@@ -72,6 +80,7 @@ export function CashPositionCard({ month }: { month: string }) {
         return;
       }
 
+      setRefreshProgress("Atualizando o quadro de caixa…");
       // Só limpa depois de confirmar que todos os PDFs escolhidos foram reconhecidos.
       // Isso preserva o caixa atual se algum arquivo não puder ser lido.
       clearSummaries();
@@ -84,6 +93,7 @@ export function CashPositionCard({ month }: { month: string }) {
       toast.error("Não consegui recalcular o caixa agora. Seus lançamentos não foram alterados.");
     } finally {
       setRefreshing(false);
+      setRefreshProgress("");
     }
   }
 
@@ -101,6 +111,7 @@ export function CashPositionCard({ month }: { month: string }) {
         </div>
         <RefreshDocumentsButton
           busy={refreshing}
+          progress={refreshProgress}
           inputRef={refreshInput}
           onFiles={(files) => void rebuildDocumentData(files)}
         />
@@ -171,6 +182,7 @@ export function CashPositionCard({ month }: { month: string }) {
 
       <RefreshDocumentsButton
         busy={refreshing}
+        progress={refreshProgress}
         inputRef={refreshInput}
         onFiles={(files) => void rebuildDocumentData(files)}
       />
@@ -180,12 +192,14 @@ export function CashPositionCard({ month }: { month: string }) {
 
 function RefreshDocumentsButton({
   busy,
+  progress,
   inputRef,
   onFiles,
 }: {
   busy: boolean;
+  progress: string;
   inputRef: React.RefObject<HTMLInputElement | null>;
-  onFiles: (files: FileList | null) => void;
+  onFiles: (files: File[]) => void;
 }) {
   return (
     <div className="mt-3">
@@ -196,25 +210,34 @@ function RefreshDocumentsButton({
         accept="application/pdf,.pdf"
         className="hidden"
         onChange={(event) => {
-          const files = event.target.files;
-          event.target.value = "";
+          // FileList pode ser "viva" em alguns navegadores móveis. Se limparmos o
+          // input antes de copiar os arquivos, a lista pode virar vazia no Android.
+          const files = Array.from(event.currentTarget.files ?? []);
+          event.currentTarget.value = "";
           onFiles(files);
         }}
       />
       <button
         type="button"
         disabled={busy}
-        onClick={() => inputRef.current?.click()}
+        onClick={() => refreshInputClick(inputRef)}
         className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary-soft px-3 text-sm font-medium text-primary disabled:opacity-50"
       >
         <RefreshCw className={cn("size-4", busy && "animate-spin")} />
         {busy ? "Recalculando…" : "Recalcular com PDFs"}
       </button>
+      {busy && progress ? (
+        <p className="mt-2 text-center text-[11px] font-medium text-primary">{progress}</p>
+      ) : null}
       <p className="mt-2 text-center text-[10px] leading-relaxed text-muted">
         Selecione juntos os PDFs de extratos e faturas. Só saldo, total e vencimento são atualizados; os lançamentos do orçamento ficam intactos.
       </p>
     </div>
   );
+}
+
+function refreshInputClick(inputRef: React.RefObject<HTMLInputElement | null>) {
+  inputRef.current?.click();
 }
 
 function Metric({ label, value, hint }: { label: string; value: string; hint: string }) {
