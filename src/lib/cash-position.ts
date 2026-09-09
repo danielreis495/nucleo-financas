@@ -1,3 +1,4 @@
+import { useFinanceStore } from "./store";
 import type { FinancialDocumentSummary, Transaction } from "./types";
 
 function monthEnd(key: string) {
@@ -119,8 +120,6 @@ function reconcilePayments(bills: FinancialDocumentSummary[], transactions: Tran
       const amountCandidates = payments.filter(
         (payment) => !used.has(payment.id) && paymentCanBelongToBill(payment, bill),
       );
-      // Sem instituição reconhecida, só conciliamos se o valor/data apontarem para
-      // uma única possibilidade. É melhor deixar em aberto do que adivinhar.
       if (amountCandidates.length === 1) chosen = amountCandidates[0];
     }
 
@@ -160,7 +159,7 @@ export type CashPosition = {
 export function cashPositionForMonth(
   summaries: FinancialDocumentSummary[],
   month: string,
-  transactions: Transaction[] = [],
+  transactions: Transaction[] = useFinanceStore.getState().transactions,
 ): CashPosition {
   const end = monthEnd(month);
   const statements = summaries
@@ -215,10 +214,6 @@ export function cashPositionForMonth(
     })
     .sort((a, b) => (a.dueDate ?? "9999-12-31").localeCompare(b.dueDate ?? "9999-12-31"));
 
-  // Caixa segue o mês em que a obrigação vence/pesa no dinheiro, e não o mês de
-  // competência das compras. Uma fatura de agosto que vence em setembro não é
-  // descontada do caixa de agosto. Se foi paga antecipadamente em agosto, o saldo
-  // final do extrato já reflete esse pagamento e também não deve ser descontada de novo.
   const openBills = billRows.filter(
     (row) => row.status === "open" && (row.dueDate?.slice(0, 7) ?? row.referenceMonth) === month,
   );
