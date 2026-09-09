@@ -51,15 +51,25 @@ export function CaptureReview({
       item.category === "outros"
     );
   }).length;
+
   const officialBillTotal =
     documentSummary?.kind === "credit_card_bill" && typeof documentSummary.billTotal === "number"
       ? documentSummary.billTotal
       : null;
-  const billDifference = officialBillTotal === null ? null : netOutflow - officialBillTotal;
+  const billItems = selected.filter((item) => natureOf(item) === "budget");
+  const billNetOutflow = billItems.reduce(
+    (total, item) => total + (item.type === "income" ? -item.amount : item.amount),
+    0,
+  );
+  const billDifference = officialBillTotal === null ? null : billNetOutflow - officialBillTotal;
   const billMatches = billDifference !== null && Math.abs(billDifference) <= 0.05;
+  const billMismatch = officialBillTotal !== null && !billMatches;
+
   const [openId, setOpenId] = useState<string | null>(null);
+  const [confirmBillMismatch, setConfirmBillMismatch] = useState(false);
 
   function patch(id: string, next: Partial<ExtractedItem>) {
+    setConfirmBillMismatch(false);
     onChange(items.map((i) => (i.id === id ? { ...i, ...next } : i)));
   }
 
@@ -69,6 +79,14 @@ export function CaptureReview({
   const exactLabel = duplicateSummary?.exactCount
     ? `${duplicateSummary.exactCount} ${duplicateSummary.exactCount === 1 ? "correspondência exata foi desmarcada" : "correspondências exatas foram desmarcadas"}.`
     : "";
+
+  function handleConfirm() {
+    if (billMismatch && !confirmBillMismatch) {
+      setConfirmBillMismatch(true);
+      return;
+    }
+    onConfirm();
+  }
 
   return (
     <div className="flex flex-1 flex-col">
@@ -87,16 +105,23 @@ export function CaptureReview({
             )}
           >
             <div className="flex items-start gap-2">
-              {billMatches ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0" />}
+              {billMatches ? (
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+              ) : (
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              )}
               <div>
                 <p className="font-medium">
                   {billMatches ? "Fatura confere com o total oficial" : "A fatura ainda não fecha"}
                 </p>
                 <p className="mt-1 text-xs leading-relaxed opacity-90">
-                  Oficial: {formatBRL(officialBillTotal)} · Lido: {formatBRL(Math.abs(netOutflow))}
+                  Oficial: {formatBRL(officialBillTotal)} · Compras/créditos lidos: {formatBRL(Math.abs(billNetOutflow))}
                   {!billMatches && billDifference !== null
                     ? ` · diferença de ${formatBRL(Math.abs(billDifference))}`
                     : ""}
+                </p>
+                <p className="mt-1 text-[11px] leading-relaxed opacity-80">
+                  A conferência usa apenas compras e créditos que entram no orçamento. Transferências, pagamento de fatura e outros movimentos técnicos ficam fora desta conta.
                 </p>
               </div>
             </div>
@@ -313,6 +338,11 @@ export function CaptureReview({
       </ul>
 
       <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 border-t border-line bg-elevated/95 px-4 py-3 backdrop-blur-md">
+        {confirmBillMismatch ? (
+          <div className="mb-3 rounded-lg bg-warn-soft px-3 py-2 text-xs leading-relaxed text-warn">
+            A diferença da fatura continua em {formatBRL(Math.abs(billDifference ?? 0))}. Confira os itens acima. Se estiver correto mesmo assim, toque novamente em “Lançar mesmo assim”.
+          </div>
+        ) : null}
         <div className="mb-2 flex items-end justify-between gap-3 text-sm">
           <span className="text-muted">
             {selectedCount} selecionados{excludedCount > 0 ? ` · ${excludedCount} fora do orçamento` : ""}
@@ -326,8 +356,8 @@ export function CaptureReview({
           <Button variant="secondary" onClick={onCancel}>
             Descartar
           </Button>
-          <Button disabled={selectedCount === 0} onClick={onConfirm}>
-            Lançar
+          <Button disabled={selectedCount === 0} onClick={handleConfirm}>
+            {confirmBillMismatch ? "Lançar mesmo assim" : "Lançar"}
           </Button>
         </div>
       </div>
