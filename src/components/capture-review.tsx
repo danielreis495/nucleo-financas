@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Check, Layers } from "lucide-react";
-import type { ExtractedItem } from "@/lib/types";
+import { AlertTriangle, Check, CheckCircle2, Layers } from "lucide-react";
+import type { ExtractedItem, FinancialDocumentSummary } from "@/lib/types";
 import { categoryLabel } from "@/lib/categories";
+import { rememberCategoryRule } from "@/lib/category-rules";
 import { rememberMerchantAlias } from "@/lib/merchant-aliases";
 import { isExpenseRefund, NATURE_LABEL, natureOf } from "@/lib/movement-nature";
 import { formatBRL, formatShortDate } from "@/lib/money";
@@ -16,6 +17,7 @@ export function CaptureReview({
   items,
   accountId,
   duplicateSummary,
+  documentSummary,
   onAccountChange,
   onChange,
   onConfirm,
@@ -24,6 +26,7 @@ export function CaptureReview({
   items: ExtractedItem[];
   accountId: string | null;
   duplicateSummary?: { possibleCount: number; exactCount: number } | null;
+  documentSummary?: FinancialDocumentSummary | null;
   onAccountChange: (accountId: string | null) => void;
   onChange: (items: ExtractedItem[]) => void;
   onConfirm: () => void;
@@ -40,6 +43,20 @@ export function CaptureReview({
     0,
   );
   const netLabel = netOutflow >= 0 ? "Saída líquida" : "Entrada líquida";
+  const attentionCount = selected.filter((item) => {
+    const merchant = item.merchant.trim().toLowerCase();
+    return (
+      merchant === "favorecido não identificado" ||
+      merchant === "favorecido nao identificado" ||
+      item.category === "outros"
+    );
+  }).length;
+  const officialBillTotal =
+    documentSummary?.kind === "credit_card_bill" && typeof documentSummary.billTotal === "number"
+      ? documentSummary.billTotal
+      : null;
+  const billDifference = officialBillTotal === null ? null : netOutflow - officialBillTotal;
+  const billMatches = billDifference !== null && Math.abs(billDifference) <= 0.05;
   const [openId, setOpenId] = useState<string | null>(null);
 
   function patch(id: string, next: Partial<ExtractedItem>) {
@@ -62,8 +79,43 @@ export function CaptureReview({
           Confira o tipo financeiro. Transferências, investimentos e pagamento de fatura não entram como gasto ou renda.
         </p>
 
+        {officialBillTotal !== null ? (
+          <div
+            className={cn(
+              "mt-4 rounded-lg px-3 py-2.5 text-sm",
+              billMatches ? "bg-primary-soft text-primary" : "bg-warn-soft text-warn",
+            )}
+          >
+            <div className="flex items-start gap-2">
+              {billMatches ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0" />}
+              <div>
+                <p className="font-medium">
+                  {billMatches ? "Fatura confere com o total oficial" : "A fatura ainda não fecha"}
+                </p>
+                <p className="mt-1 text-xs leading-relaxed opacity-90">
+                  Oficial: {formatBRL(officialBillTotal)} · Lido: {formatBRL(Math.abs(netOutflow))}
+                  {!billMatches && billDifference !== null
+                    ? ` · diferença de ${formatBRL(Math.abs(billDifference))}`
+                    : ""}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {attentionCount > 0 ? (
+          <div className="mt-3 rounded-lg bg-warn-soft px-3 py-2.5 text-sm text-warn">
+            <p className="font-medium">
+              {attentionCount} {attentionCount === 1 ? "lançamento pede" : "lançamentos pedem"} uma olhada
+            </p>
+            <p className="mt-1 text-xs leading-relaxed opacity-90">
+              Marquei itens em “Outros” ou com favorecido não identificado para você localizar rápido antes de lançar.
+            </p>
+          </div>
+        ) : null}
+
         {duplicateSummary && duplicateSummary.possibleCount > 0 ? (
-          <div className="mt-4 rounded-lg bg-warn-soft px-3 py-2.5 text-sm text-warn">
+          <div className="mt-3 rounded-lg bg-warn-soft px-3 py-2.5 text-sm text-warn">
             <p className="font-medium">
               {possibleLabel} {exactLabel}
             </p>
@@ -110,12 +162,15 @@ export function CaptureReview({
           const open = openId === item.id;
           const nature = natureOf(item);
           const refund = isExpenseRefund(item);
+          const needsAttention =
+            item.category === "outros" || /favorecido n[aã]o identificado/i.test(item.merchant);
           return (
             <li
               key={item.id}
               className={cn(
                 "rounded-xl bg-elevated p-3 shadow-[var(--shadow-border)] transition-opacity",
                 !item.selected && "opacity-45",
+                item.selected && needsAttention && "ring-1 ring-warn/35",
               )}
             >
               <div className="flex items-start gap-3">
@@ -148,6 +203,11 @@ export function CaptureReview({
                     {item.description} · {formatShortDate(item.date)}
                   </p>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    {needsAttention ? (
+                      <span className="rounded-full bg-warn-soft px-2.5 py-1 text-xs font-medium text-warn">
+                        Revisar
+                      </span>
+                    ) : null}
                     {refund ? (
                       <span className="rounded-full bg-line px-2.5 py-1 text-xs font-medium text-income">
                         Estorno / crédito
@@ -218,8 +278,14 @@ export function CaptureReview({
                       <CategoryPicker
                         value={item.category}
                         group={refund ? "gasto" : item.type === "income" ? "entrada" : "gasto"}
-                        onChange={(id) => patch(item.id, { category: id })}
+                        onChange={(id) => {
+                          rememberCategoryRule(item.merchant, id);
+                          patch(item.id, { category: id });
+                        }}
                       />
+                      <p className="mt-1 text-[11px] leading-relaxed text-muted">
+                        Ao corrigir a categoria, o Núcleo aprende este estabelecimento para próximas importações.
+                      </p>
                     </>
                   ) : null}
 
