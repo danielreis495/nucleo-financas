@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { MonthHeader } from "@/components/month-header";
 import { PersonAvatar } from "@/components/person-avatar";
@@ -30,6 +31,15 @@ export const Route = createFileRoute("/extrato")({
   component: ExtratoPage,
 });
 
+function normalizeSearch(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function ExtratoPage() {
   const { cat, person, type } = Route.useSearch();
   const month = useFinanceStore((s) => s.viewMonth);
@@ -43,6 +53,7 @@ function ExtratoPage() {
   const [txType, setTxType] = useState<Transaction["type"] | "all">(type ?? "all");
   const [scope, setScope] = useState<ScopeFilter>("all");
   const [origin, setOrigin] = useState<string | "all">("all");
+  const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<Transaction | null>(null);
 
   useEffect(() => {
@@ -59,6 +70,7 @@ function ExtratoPage() {
 
   useEffect(() => {
     setOrigin("all");
+    setQuery("");
   }, [month]);
 
   const expenseCats = categoriesFor("gasto", custom);
@@ -83,6 +95,7 @@ function ExtratoPage() {
   }, [monthRows]);
 
   const rows = useMemo(() => {
+    const needle = normalizeSearch(query);
     return monthRows
       .filter((t) => (txType === "all" ? true : t.type === txType))
       .filter((t) => {
@@ -98,8 +111,25 @@ function ExtratoPage() {
       })
       .filter((t) => (personId === "all" ? true : t.personId === personId))
       .filter((t) => (category === "all" ? true : t.category === category))
+      .filter((t) => {
+        if (!needle) return true;
+        const haystack = normalizeSearch(
+          [
+            t.merchant,
+            t.description,
+            t.originLabel,
+            t.originInstitution,
+            t.paymentMethod,
+            t.sourceFileName,
+            categoryLabel(t.category, custom),
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
+        return haystack.includes(needle);
+      })
       .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
-  }, [monthRows, txType, scope, origin, personId, category]);
+  }, [monthRows, txType, scope, origin, personId, category, query, custom]);
 
   const groups = useMemo(() => {
     const map = new Map<string, typeof rows>();
@@ -139,6 +169,34 @@ function ExtratoPage() {
           </p>
         </div>
       ) : null}
+
+      <div className="px-5 pb-3">
+        <div className="relative">
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar loja, Pix, banco, categoria…"
+            inputMode="search"
+            className="h-11 w-full rounded-xl bg-elevated pr-10 pl-10 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
+          />
+          {query ? (
+            <button
+              type="button"
+              aria-label="Limpar busca"
+              onClick={() => setQuery("")}
+              className="absolute top-1/2 right-2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full text-muted active:bg-line"
+            >
+              <X className="size-4" />
+            </button>
+          ) : null}
+        </div>
+        {query ? (
+          <p className="mt-2 text-xs text-muted">
+            {rows.length} resultado{rows.length === 1 ? "" : "s"} · saldo do recorte {formatBRL(total)}
+          </p>
+        ) : null}
+      </div>
 
       <div className="flex gap-2 overflow-x-auto px-5 pb-2">
         <FilterChip active={scope === "all"} onClick={() => setScope("all")}>
