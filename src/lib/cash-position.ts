@@ -1,4 +1,5 @@
-import type { FinancialDocumentSummary } from "./types";
+import { useFinanceStore } from "./store";
+import type { FinancialDocumentSummary, Transaction } from "./types";
 
 function monthEnd(key: string) {
   const [year, month] = key.split("-").map(Number);
@@ -7,19 +8,139 @@ function monthEnd(key: string) {
 }
 
 function normalizeKeyPart(value: string | undefined) {
-  return (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function canonicalInstitution(value: string | undefined) {
+  const text = normalizeKeyPart(value);
+  if (/\bnubank\b|\bnu pagamentos\b/.test(text)) return "nubank";
+  if (/\bitau\b/.test(text)) return "itau";
+  if (/\bbradesco\b/.test(text)) return "bradesco";
+  if (/\bsantander\b/.test(text)) return "santander";
+  if (/\bbanco do brasil\b/.test(text)) return "banco do brasil";
+  if (/\bcaixa economica\b|\bcaixa\b/.test(text)) return "caixa";
+  if (/\bbanco inter\b|\binter\b/.test(text)) return "inter";
+  if (/\bc6 bank\b|\bc6\b/.test(text)) return "c6";
+  return text;
 }
 
 function summaryAccountKey(summary: FinancialDocumentSummary) {
-  return `${normalizeKeyPart(summary.institution)}|${normalizeKeyPart(summary.holderName)}`;
+  return `${canonicalInstitution(summary.institution)}|${normalizeKeyPart(summary.holderName)}`;
 }
 
 function billIdentityKey(summary: FinancialDocumentSummary) {
-  return [
-    normalizeKeyPart(summary.institution),
-    summary.referenceMonth,
-  ].join("|");
+  return [canonicalInstitution(summary.institution), summary.referenceMonth].join("|");
 }
+
+function paymentInstitution(tx: Transaction) {
+  return canonicalInstitution(
+    [tx.originInstitution, tx.originLabel, tx.merchant, tx.description].filter(Boolean).join(" "),
+  );
+}
+
+function isCardPayment(tx: Transaction) {
+  if (tx.nature === "card_payment") return true;
+  const text = normalizeKeyPart(`${tx.paymentMethod ?? ""} ${tx.merchant} ${tx.description}`);
+  return /\bpagamento de fatura\b|\bpagamento fatura\b|\bpag fatura\b|\bpagto fatura\b/.test(text);
+}
+
+function sameAmount(a: number, b: number) {
+  return Math.abs(a - b) <= 0.05;
+}
+
+function addDays(dateIso: string, days: number) {
+  const date = new Date(`${dateIso}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function paymentCanBelongToBill(payment: Transaction, bill: FinancialDocumentSummary) {
+  if (!isCardPayment(payment) || typeof bill.billTotal !== "number") return false;
+  if (!sameAmount(payment.amount, bill.billTotal)) return false;
+
+  const billInstitution = canonicalInstitution(bill.institution);
+  const txInstitution = paymentInstitution(payment);
+  if (billInstitution && txInstitution && billInstitution !== txInstitution) return false;
+
+  const earliest = `${bill.referenceMonth}-01`;
+  const latest = addDays(bill.dueDate ?? monthEnd(bill.referenceMonth), 45);
+  return payment.date >= earliest && payment.date <= latest;
+}
+
+function uniqueBillsFrom(summaries: FinancialDocumentSummary[]) {
+  const bills = summaries
+    .filter(
+      (summary) =>
+        summary.kind === "credit_card_bill" &&
+        typeof summary.billTotal === "number" &&
+        summary.billTotal > 0,
+    )
+    .sort((a, b) => (b.importedAt ?? "").localeCompare(a.importedAt ?? ""));
+
+  const map = new Map<string, FinancialDocumentSummary>();
+  for (const bill of bills) {
+    const key = billIdentityKey(bill);
+    if (!map.has(key)) map.set(key, bill);
+  }
+  return [...map.values()];
+}
+
+function reconcilePayments(bills: FinancialDocumentSummary[], transactions: Transaction[]) {
+  const payments = transactions
+    .filter(isCardPayment)
+    .filter((tx) => tx.status === "posted")
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const used = new Set<string>();
+  const paymentByBill = new Map<string, Transaction>();
+
+  const orderedBills = [...bills].sort((a, b) => {
+    const aDate = a.dueDate ?? `${a.referenceMonth}-28`;
+    const bDate = b.dueDate ?? `${b.referenceMonth}-28`;
+    return aDate.localeCompare(bDate);
+  });
+
+  for (const bill of orderedBills) {
+    const billKey = billIdentityKey(bill);
+    const strongCandidates = payments.filter((payment) => {
+      if (used.has(payment.id) || !paymentCanBelongToBill(payment, bill)) return false;
+      const billInstitution = canonicalInstitution(bill.institution);
+      const txInstitution = paymentInstitution(payment);
+      return Boolean(billInstitution && txInstitution && billInstitution === txInstitution);
+    });
+
+    let chosen = strongCandidates[0];
+    if (!chosen) {
+      const amountCandidates = payments.filter(
+        (payment) => !used.has(payment.id) && paymentCanBelongToBill(payment, bill),
+      );
+      if (amountCandidates.length === 1) chosen = amountCandidates[0];
+    }
+
+    if (!chosen) continue;
+    used.add(chosen.id);
+    paymentByBill.set(billKey, chosen);
+  }
+
+  return paymentByBill;
+}
+
+export type CashBillStatus = "paid" | "open" | "future";
+
+export type CashBillRow = {
+  institution: string;
+  total: number;
+  referenceMonth: string;
+  dueDate?: string;
+  status: CashBillStatus;
+  paymentDate?: string;
+};
 
 export type CashPosition = {
   cashKnown: boolean;
@@ -28,12 +149,17 @@ export type CashPosition = {
   billsKnown: boolean;
   billsDue: number;
   billCount: number;
+  paidBillsAmount: number;
+  paidBillCount: number;
+  futureBillCount: number;
+  billRows: CashBillRow[];
   netAvailable: number | null;
 };
 
 export function cashPositionForMonth(
   summaries: FinancialDocumentSummary[],
   month: string,
+  transactions: Transaction[] = useFinanceStore.getState().transactions,
 ): CashPosition {
   const end = monthEnd(month);
   const statements = summaries
@@ -58,36 +184,60 @@ export function cashPositionForMonth(
   });
   const cashBalance = selectedStatements.reduce((sum, summary) => sum + (summary.balance ?? 0), 0);
 
-  const bills = summaries
-    .filter(
-      (summary) =>
-        summary.kind === "credit_card_bill" &&
-        summary.referenceMonth === month &&
-        typeof summary.billTotal === "number" &&
-        summary.billTotal! > 0,
-    )
-    .sort((a, b) => (b.importedAt ?? "").localeCompare(a.importedAt ?? ""));
+  const allBills = uniqueBillsFrom(summaries);
+  const paymentByBill = reconcilePayments(allBills, transactions);
 
-  // Titular não participa da identidade porque PDFs diferentes podem trazer o nome
-  // completo, abreviado ou nenhum titular. Para cada instituição/mês vale somente a
-  // leitura mais recente da fatura.
-  const billMap = new Map<string, FinancialDocumentSummary>();
-  for (const bill of bills) {
-    const key = billIdentityKey(bill);
-    if (!billMap.has(key)) billMap.set(key, bill);
-  }
-  const uniqueBills = [...billMap.values()];
-  const billsDue = uniqueBills.reduce((sum, bill) => sum + (bill.billTotal ?? 0), 0);
+  const relatedBills = allBills.filter((bill) => {
+    const payment = paymentByBill.get(billIdentityKey(bill));
+    const dueMonth = bill.dueDate?.slice(0, 7);
+    return bill.referenceMonth === month || dueMonth === month || payment?.date.slice(0, 7) === month;
+  });
 
+  const billRows: CashBillRow[] = relatedBills
+    .map((bill) => {
+      const payment = paymentByBill.get(billIdentityKey(bill));
+      const paidByMonthEnd = Boolean(payment && payment.date <= end);
+      const dueMonth = bill.dueDate?.slice(0, 7) ?? bill.referenceMonth;
+      const status: CashBillStatus = paidByMonthEnd
+        ? "paid"
+        : dueMonth > month
+          ? "future"
+          : "open";
+      return {
+        institution: bill.institution,
+        total: bill.billTotal ?? 0,
+        referenceMonth: bill.referenceMonth,
+        dueDate: bill.dueDate,
+        status,
+        paymentDate: paidByMonthEnd ? payment?.date : undefined,
+      };
+    })
+    .sort((a, b) => (a.dueDate ?? "9999-12-31").localeCompare(b.dueDate ?? "9999-12-31"));
+
+  const openBills = billRows.filter(
+    (row) => row.status === "open" && (row.dueDate?.slice(0, 7) ?? row.referenceMonth) === month,
+  );
+  const paidInMonth = billRows.filter(
+    (row) => row.status === "paid" && row.paymentDate?.slice(0, 7) === month,
+  );
+  const futureBills = billRows.filter((row) => row.status === "future");
+
+  const billsDue = openBills.reduce((sum, bill) => sum + bill.total, 0);
+  const paidBillsAmount = paidInMonth.reduce((sum, bill) => sum + bill.total, 0);
   const cashKnown = selectedStatements.length > 0;
-  const billsKnown = uniqueBills.length > 0;
+  const billsKnown = relatedBills.length > 0;
+
   return {
     cashKnown,
     cashBalance,
     cashSources: selectedStatements.length,
     billsKnown,
     billsDue,
-    billCount: uniqueBills.length,
+    billCount: openBills.length,
+    paidBillsAmount,
+    paidBillCount: paidInMonth.length,
+    futureBillCount: futureBills.length,
+    billRows,
     netAvailable: cashKnown ? cashBalance - billsDue : null,
   };
 }
