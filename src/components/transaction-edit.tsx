@@ -3,6 +3,7 @@ import { CategoryPicker } from "@/components/category-picker";
 import { MovementKindPicker } from "@/components/movement-kind-picker";
 import { PersonAvatar } from "@/components/person-avatar";
 import { Button } from "@/components/ui/button";
+import { rememberCategoryRule } from "@/lib/category-rules";
 import { rememberMerchantAlias } from "@/lib/merchant-aliases";
 import { natureOf } from "@/lib/movement-nature";
 import { formatBRL, parseLooseAmount } from "@/lib/money";
@@ -147,8 +148,14 @@ export function TransactionEdit({
               <CategoryPicker
                 value={live.category}
                 group={live.type === "income" ? "entrada" : "gasto"}
-                onChange={(id) => update(live.id, { category: id })}
+                onChange={(id) => {
+                  rememberCategoryRule(merchant.trim() || live.merchant, id);
+                  update(live.id, { category: id });
+                }}
               />
+              <p className="mt-1 text-[11px] leading-relaxed text-muted">
+                Esta correção de categoria será reaplicada automaticamente quando o mesmo estabelecimento aparecer de novo.
+              </p>
             </>
           ) : null}
 
