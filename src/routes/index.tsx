@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowDownRight, ArrowUpRight, CalendarClock, Sparkles } from "lucide-react";
 import { CashFlowForecastCard } from "@/components/cash-flow-forecast-card";
 import { CashPositionCard } from "@/components/cash-position-card";
+import { MonthChangeCard } from "@/components/month-change-card";
 import { MonthHeader } from "@/components/month-header";
 import { PersonAvatar } from "@/components/person-avatar";
 import { TransactionEdit } from "@/components/transaction-edit";
@@ -88,6 +89,7 @@ function Home() {
       </section>
 
       <CashPositionCard month={month} />
+      <MonthChangeCard month={month} />
 
       <section className="px-5">
         <p className="mb-2 text-xs font-medium text-muted">Ritmo do mês</p>
