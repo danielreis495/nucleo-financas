@@ -4,40 +4,19 @@ import { toast } from "sonner";
 import { cashPositionForMonth } from "@/lib/cash-position";
 import { summarizeFinancialDocument } from "@/lib/document-summary";
 import { useDocumentStore } from "@/lib/document-store";
-import { formatBRL } from "@/lib/money";
+import { formatBRL, formatShortDate } from "@/lib/money";
+import { useFinanceStore } from "@/lib/store";
 import { cn, todayIso } from "@/lib/utils";
-
-function normalizeInstitution(value: string) {
-  return value.trim().toLowerCase().replace(/\s+/g, " ");
-}
 
 export function CashPositionCard({ month }: { month: string }) {
   const summaries = useDocumentStore((s) => s.summaries);
   const addSummary = useDocumentStore((s) => s.addSummary);
   const clearSummaries = useDocumentStore((s) => s.clearSummaries);
-  const position = cashPositionForMonth(summaries, month);
+  const transactions = useFinanceStore((s) => s.transactions);
+  const position = cashPositionForMonth(summaries, month, transactions);
   const refreshInput = useRef<HTMLInputElement>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState("");
-
-  const billRows = (() => {
-    const rows = summaries
-      .filter(
-        (summary) =>
-          summary.kind === "credit_card_bill" &&
-          summary.referenceMonth === month &&
-          typeof summary.billTotal === "number" &&
-          summary.billTotal > 0,
-      )
-      .sort((a, b) => (b.importedAt ?? "").localeCompare(a.importedAt ?? ""));
-    const seen = new Set<string>();
-    return rows.filter((row) => {
-      const key = normalizeInstitution(row.institution);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  })();
 
   async function rebuildDocumentData(files: File[]) {
     if (!files.length) {
@@ -81,8 +60,6 @@ export function CashPositionCard({ month }: { month: string }) {
       }
 
       setRefreshProgress("Atualizando o quadro de caixa…");
-      // Só limpa depois de confirmar que todos os PDFs escolhidos foram reconhecidos.
-      // Isso preserva o caixa atual se algum arquivo não puder ser lido.
       clearSummaries();
       for (const summary of parsed) addSummary(summary);
 
@@ -105,7 +82,7 @@ export function CashPositionCard({ month }: { month: string }) {
           <div>
             <p className="font-medium">Caixa real ainda não calculado</p>
             <p className="mt-1 text-sm leading-relaxed text-muted">
-              O resultado do mês não é o saldo da conta. Use os PDFs de extratos e faturas para o Núcleo ler somente saldo final e valores a pagar.
+              O resultado do mês não é o saldo da conta. Use os PDFs de extratos e faturas para o Núcleo ler saldo final, vencimentos e pagamentos.
             </p>
           </div>
         </div>
@@ -118,6 +95,18 @@ export function CashPositionCard({ month }: { month: string }) {
       </section>
     );
   }
+
+  const billsHint = position.billsKnown
+    ? position.billCount > 0
+      ? `${position.billCount} fatura${position.billCount === 1 ? "" : "s"} em aberto no mês`
+      : position.paidBillCount > 0 && position.futureBillCount > 0
+        ? `${position.paidBillCount} paga${position.paidBillCount === 1 ? "" : "s"} no mês · ${position.futureBillCount} vence${position.futureBillCount === 1 ? "" : "m"} depois`
+        : position.paidBillCount > 0
+          ? `${position.paidBillCount} paga${position.paidBillCount === 1 ? "" : "s"} no mês`
+          : position.futureBillCount > 0
+            ? `${position.futureBillCount} fatura${position.futureBillCount === 1 ? "" : "s"} vence${position.futureBillCount === 1 ? "" : "m"} em outro mês`
+            : "Nenhuma fatura em aberto no mês"
+    : "Nenhuma fatura identificada";
 
   return (
     <section className="mx-5 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
@@ -136,20 +125,31 @@ export function CashPositionCard({ month }: { month: string }) {
           hint={position.cashKnown ? `${position.cashSources} saldo${position.cashSources === 1 ? "" : "s"} identificado${position.cashSources === 1 ? "" : "s"}` : "Sem saldo final"}
         />
         <Metric
-          label="Faturas a pagar"
+          label="Faturas em aberto"
           value={position.billsKnown ? formatBRL(position.billsDue) : "—"}
-          hint={position.billsKnown ? `${position.billCount} fatura${position.billCount === 1 ? "" : "s"} ligada${position.billCount === 1 ? "" : "s"} ao mês` : "Nenhuma fatura identificada"}
+          hint={billsHint}
         />
       </div>
 
-      {billRows.length > 0 ? (
+      {position.billRows.length > 0 ? (
         <div className="mt-2 rounded-lg bg-surface px-3 py-2.5 shadow-[var(--shadow-border)]">
-          <p className="text-[11px] font-medium text-muted">Composição das faturas</p>
+          <p className="text-[11px] font-medium text-muted">Situação das faturas relacionadas</p>
           <ul className="mt-1 divide-y divide-line">
-            {billRows.map((bill) => (
+            {position.billRows.map((bill) => (
               <li key={`${bill.institution}-${bill.referenceMonth}`} className="flex items-center justify-between gap-3 py-1.5 text-xs">
-                <span className="truncate text-muted">{bill.institution}</span>
-                <span className="font-medium tabular-nums">{formatBRL(bill.billTotal ?? 0)}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-muted">{bill.institution}</span>
+                  <span className="block text-[10px] text-muted">
+                    {bill.status === "paid" && bill.paymentDate
+                      ? `Pago em ${formatShortDate(bill.paymentDate)}`
+                      : bill.status === "future" && bill.dueDate
+                        ? `Vence em ${formatShortDate(bill.dueDate)} · fora do caixa deste mês`
+                        : bill.dueDate
+                          ? `Em aberto · vence em ${formatShortDate(bill.dueDate)}`
+                          : "Em aberto"}
+                  </span>
+                </span>
+                <span className="font-medium tabular-nums">{formatBRL(bill.total)}</span>
               </li>
             ))}
           </ul>
@@ -159,7 +159,7 @@ export function CashPositionCard({ month }: { month: string }) {
       <div className="mt-2 rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs text-muted">Disponível líquido após faturas</p>
+            <p className="text-xs text-muted">Disponível líquido no fechamento</p>
             <p
               className={cn(
                 "mt-1 font-display text-2xl tabular-nums",
@@ -176,7 +176,7 @@ export function CashPositionCard({ month }: { month: string }) {
           )}
         </div>
         <p className="mt-2 text-xs leading-relaxed text-muted">
-          Este número é separado do resultado do mês: usa saldos finais encontrados nos extratos e desconta as faturas identificadas para o período.
+          Usa o saldo final das contas e desconta apenas faturas ainda em aberto que vencem neste mês. Pagamentos já encontrados no extrato não são cobrados duas vezes; faturas que vencem depois ficam para o mês do vencimento.
         </p>
       </div>
 
@@ -210,8 +210,6 @@ function RefreshDocumentsButton({
         accept="application/pdf,.pdf"
         className="hidden"
         onChange={(event) => {
-          // FileList pode ser "viva" em alguns navegadores móveis. Se limparmos o
-          // input antes de copiar os arquivos, a lista pode virar vazia no Android.
           const files = Array.from(event.currentTarget.files ?? []);
           event.currentTarget.value = "";
           onFiles(files);
@@ -230,7 +228,7 @@ function RefreshDocumentsButton({
         <p className="mt-2 text-center text-[11px] font-medium text-primary">{progress}</p>
       ) : null}
       <p className="mt-2 text-center text-[10px] leading-relaxed text-muted">
-        Selecione juntos os PDFs de extratos e faturas. Só saldo, total e vencimento são atualizados; os lançamentos do orçamento ficam intactos.
+        Selecione juntos os PDFs de extratos e faturas. Os lançamentos do orçamento ficam intactos; o quadro cruza saldo, vencimento e pagamentos já registrados.
       </p>
     </div>
   );
