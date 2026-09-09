@@ -51,6 +51,8 @@ type ChatInput = {
 
 type ChatResult = { ok: true; text: string } | { ok: false; error: string };
 
+type ExtractResult = { ok: true; items: ExtractedItem[] } | { ok: false; error: string };
+
 function parseJsonObject(raw: string): unknown {
   const trimmed = raw.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -133,14 +135,9 @@ function resolveMerchant(row: Record<string, unknown>, description: string, natu
   if (counterpartyRequired && counterparty && !isGenericFinancialIntermediaryName(counterparty)) {
     return counterparty;
   }
-
   if (counterpartyRequired && isGenericFinancialIntermediaryName(rawMerchant)) {
-    // Banco/PSP é a instituição técnica da transferência, não o fornecedor.
-    // Se o documento não revelar a contraparte com segurança, é melhor admitir
-    // isso do que apresentar o banco como se fosse a loja/pessoa que recebeu.
     return "Favorecido não identificado";
   }
-
   return rawMerchant || description || "Comércio";
 }
 
@@ -191,12 +188,7 @@ async function listGeminiModels(apiKey: string): Promise<string[]> {
 export async function geminiGenerate(apiKey: string, input: ChatInput): Promise<ChatResult> {
   const parts: Record<string, unknown>[] = [{ text: input.text }];
   for (const img of input.images ?? []) {
-    parts.push({
-      inlineData: {
-        mimeType: img.mime,
-        data: img.base64,
-      },
-    });
+    parts.push({ inlineData: { mimeType: img.mime, data: img.base64 } });
   }
 
   const payload = {
@@ -211,8 +203,8 @@ export async function geminiGenerate(apiKey: string, input: ChatInput): Promise<
 
   const listed = await listGeminiModels(apiKey);
   const models = [...listed, ...FALLBACK_MODELS.filter((m) => !listed.includes(m))].slice(0, 6);
-
   let lastStatus = 0;
+
   for (const model of models) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -229,7 +221,7 @@ export async function geminiGenerate(apiKey: string, input: ChatInput): Promise<
       }
       lastStatus = res.status;
       if (res.status === 404) break;
-      if (res.status === 503 || res.status === 500 || res.status === 502 || res.status === 504) {
+      if ([500, 502, 503, 504].includes(res.status)) {
         if (attempt === 0) {
           await wait(900);
           continue;
@@ -245,10 +237,7 @@ export async function geminiGenerate(apiKey: string, input: ChatInput): Promise<
       }
       if (!res.ok) {
         if (res.status === 400 || res.status === 403) {
-          return {
-            ok: false,
-            error: "Chave do Gemini recusada. Cole de novo em Casa, sem aspas nem espaço.",
-          };
+          return { ok: false, error: "Chave do Gemini recusada. Cole de novo em Casa, sem aspas nem espaço." };
         }
         break;
       }
@@ -261,168 +250,230 @@ export async function geminiGenerate(apiKey: string, input: ChatInput): Promise<
     }
   }
 
-  if (lastStatus === 503 || lastStatus === 500 || lastStatus === 502 || lastStatus === 504) {
-    return {
-      ok: false,
-      error: "O Gemini está congestionado agora. Espere 20 segundos e tire a foto de novo.",
-    };
+  if ([500, 502, 503, 504].includes(lastStatus)) {
+    return { ok: false, error: "O Gemini está congestionado agora. Espere 20 segundos e tente de novo." };
   }
-  if (lastStatus === 429) {
-    return { ok: false, error: "Gemini está no limite de hoje. Tente de novo mais tarde." };
-  }
+  if (lastStatus === 429) return { ok: false, error: "Gemini está no limite de hoje. Tente de novo mais tarde." };
   if (lastStatus === 404 || lastStatus === 0) {
-    return {
-      ok: false,
-      error: "Sua chave do Gemini não liberou um modelo. Gere outra em aistudio.google.com/apikey.",
-    };
+    return { ok: false, error: "Sua chave do Gemini não liberou um modelo. Gere outra em aistudio.google.com/apikey." };
   }
   return { ok: false, error: `Não consegui ler o documento (${lastStatus}).` };
 }
 
-export async function extractWithGemini(data: ExtractPayload): Promise<
-  { ok: true; items: ExtractedItem[] } | { ok: false; error: string }
-> {
-  const apiKey = (data.apiKey ?? "").trim();
-  if (!apiKey) {
-    return { ok: false, error: "Cole a chave do Gemini em Casa (abaixo das pessoas)." };
-  }
-
+function buildExtractionSystem(data: ExtractPayload) {
   const peopleList = data.people.map((p) => `${p.name} (${p.id}, ${p.role})`).join("; ");
-  const system = `Você extrai lançamentos de documentos financeiros brasileiros: fatura de cartão, extrato bancário, boleto, NF, planilha, holerite, contracheque e demonstrativo de pagamento.
-Responda APENAS um JSON válido, sem markdown:
-{
-  "items": [
-    {
-      "description": "texto curto preservando a evidência do documento",
-      "merchant": "nome da loja/pessoa/contraparte real",
-      "counterparty": "nome do beneficiário/remetente real ou string vazia",
-      "amount": number,
-      "date": "YYYY-MM-DD",
-      "type": "expense" | "income",
-      "nature": "budget" | "transfer" | "investment" | "card_payment" | "financing" | "neutral",
-      "category": one of [${CATEGORY_IDS}],
-      "personId": "id da pessoa ou ${data.defaultPersonId}",
-      "installment": null | { "current": number, "total": number, "kind": "card" | "loan" | "other" }
-    }
-  ]
+  return `Você extrai lançamentos de documentos financeiros brasileiros.
+Responda APENAS JSON válido:
+{"items":[{"description":"texto curto fiel ao documento","merchant":"loja/pessoa/contraparte real","counterparty":"beneficiário/remetente real ou vazio","amount":number,"date":"YYYY-MM-DD","type":"expense|income","nature":"budget|transfer|investment|card_payment|financing|neutral","category":"${CATEGORY_IDS}","personId":"id","installment":null}]}
+
+REGRAS FINANCEIRAS:
+- budget: compra, conta, salário, remuneração, reembolso ou gasto/renda real.
+- transfer: dinheiro entre contas do mesmo titular ou pessoas da própria casa; não entra no orçamento.
+- investment: aplicação/resgate/RDB/cofrinho; não entra no orçamento.
+- card_payment: pagamento de fatura; não conte de novo.
+- financing: empréstimo, Pix no Crédito ou crédito contratado; não é renda.
+- neutral: saldo, limite e totalizadores; prefira não retornar.
+- Pix para fornecedor/pessoa de fora da casa é budget, não transfer.
+
+CONTRAPARTE:
+- merchant/counterparty é QUEM realmente recebeu ou enviou o dinheiro.
+- Banco/PSP (Itaú, Nubank, PagSeguro/PagBank, Bradesco, Santander, Caixa, Banco do Brasil, Mercado Pago, PicPay etc.) NÃO é merchant só por ser a instituição da conta/chave Pix.
+- Procure favorecido, beneficiário, recebedor, destinatário, pagador ou remetente. Esse nome tem prioridade sobre banco/agência/conta.
+- Se só houver a instituição e a contraparte não estiver visível, use merchant="Favorecido não identificado" e preserve a instituição em description.
+- Banco pode ser merchant quando ele é o próprio serviço cobrado: tarifa, juros, empréstimo, seguro bancário ou pagamento de fatura.
+
+FATURA DE CARTÃO:
+- Um item por compra; não use o total da fatura como gasto.
+- Data da compra, não vencimento. Ano de referência: ${data.today.slice(0, 4)}.
+- Parcela 03/10 => installment {current:3,total:10,kind:"card"}; amount é a parcela.
+- Estorno/crédito: type="income", nature="budget".
+- Preserve exatamente nomes de estabelecimentos.
+
+EXTRATO DE CONTA / CSV:
+- Salário/pagamento de terceiro: income + budget.
+- Compra, Pix para fornecedor, boleto de consumo e tarifa real: expense + budget.
+- Transferência entre contas próprias/pessoas da casa: transfer.
+- Aplicação: expense + investment. Resgate: income + investment.
+- Pagamento de fatura: expense + card_payment.
+- Saldo/limite: neutral e prefira não retornar.
+
+HOLERITE:
+- Retorne exatamente um item com o valor líquido recebido.
+- merchant = empregador, type=income, nature=budget, category=salario.
+- Não crie itens separados para descontos/proventos.
+
+GERAL:
+- Categorias permitidas: [${CATEGORY_IDS}].
+- personId só se o nome aparecer; senão ${data.defaultPersonId}.
+- Pessoas da casa: ${peopleList}.
+- Hoje: ${data.today}.
+- Não invente nem normalize nomes.`;
 }
 
-NATUREZA FINANCEIRA — REGRA OBRIGATÓRIA:
-- "budget": compra, conta, boleto de consumo, salário, remuneração, reembolso ou outro valor que realmente aumenta renda ou representa gasto do orçamento.
-- "transfer": dinheiro movido entre contas do mesmo titular ou entre pessoas da própria casa. Não é renda nem gasto novo.
-- "investment": aplicação, aporte, resgate de investimento, RDB, cofrinho ou equivalente. Não é renda nem gasto de consumo.
-- "card_payment": pagamento/quitacão de fatura de cartão. A despesa já está nas compras da fatura; não conte de novo.
-- "financing": dinheiro que entrou por empréstimo, crédito contratado, Pix no Crédito ou valor adicionado por cartão. Não é renda.
-- "neutral": saldo do dia, saldo em conta, limite, totalizadores e linhas técnicas que não deveriam afetar orçamento.
-- NÃO marque todo Pix como transferência. Pix para loja, fornecedor, restaurante, pessoa de fora da casa ou prestador é gasto "budget". Pix recebido de cliente/terceiro pode ser entrada "budget".
+function parseExtractedItems(rawText: string, data: ExtractPayload, maxItems = 200): ExtractedItem[] {
+  const parsed = parseJsonObject(rawText) as { items?: unknown[] };
+  return (parsed.items ?? [])
+    .slice(0, maxItems)
+    .map((raw) => {
+      const row = (raw ?? {}) as Record<string, unknown>;
+      const inst = row.installment as Record<string, unknown> | null;
+      const description = String(row.description ?? row.merchant ?? "Lançamento");
+      const nature = asNature(row.nature);
+      return {
+        id: uid(),
+        description,
+        merchant: resolveMerchant(row, description, nature),
+        amount: asAmount(row.amount),
+        date: asDate(row.date, data.today),
+        type: asType(row.type),
+        nature,
+        category: asCategory(row.category),
+        personId: data.people.some((p) => p.id === row.personId)
+          ? String(row.personId)
+          : data.defaultPersonId,
+        selected: true,
+        installment:
+          inst && Number(inst.total) > 1
+            ? {
+                current: Math.max(1, Number(inst.current) || 1),
+                total: Math.max(2, Number(inst.total) || 2),
+                kind: asKind(inst.kind),
+              }
+            : null,
+      };
+    })
+    .filter((item) => item.amount > 0);
+}
 
-CONTRAPARTE / NOME DO LANÇAMENTO — REGRA OBRIGATÓRIA:
-- merchant é QUEM realmente recebeu ou enviou o dinheiro: loja, fornecedor, prestador, pessoa ou empregador.
-- counterparty repete esse nome quando ele estiver claramente identificado no documento. Preserve a grafia do documento; não invente nem complete nomes.
-- Banco, instituição de pagamento ou adquirente (ex.: ITAÚ UNIBANCO S.A., NU PAGAMENTOS, PAGSEGURO/PAGBANK, BRADESCO, SANTANDER, CAIXA, BANCO DO BRASIL, MERCADO PAGO, PICPAY) NÃO é merchant só porque aparece como instituição da conta/chave Pix do favorecido.
-- Em Pix/transferência, procure explicitamente campos como nome, favorecido, beneficiário, recebedor, destinatário, pagador ou remetente. Esse nome tem prioridade sobre banco/instituição/agência/conta.
-- Exemplo: "Favorecido: MERCADO ABC | Instituição: ITAÚ UNIBANCO S.A." => merchant="MERCADO ABC", counterparty="MERCADO ABC". NÃO use "ITAÚ UNIBANCO S.A.".
-- Exemplo: "Recebedor: JOÃO SILVA | Banco: PAGSEGURO" => merchant="JOÃO SILVA". NÃO use "PAGSEGURO".
-- Se o documento só mostrar a instituição financeira e NÃO revelar a contraparte, use merchant="Favorecido não identificado" e preserve a instituição em description. É melhor admitir ausência de dado do que inventar fornecedor.
-- Exceção: quando o próprio banco é de fato o serviço pago (pagamento de fatura, tarifa, juros, empréstimo, seguro bancário), ele pode ser merchant.
+function looksLikeBankStatement(text: string) {
+  const normalized = normalizeText(text.slice(0, 24000));
+  const accountSignals = [
+    /\bextrato\b/,
+    /\bsaldo em conta\b/,
+    /\bsaldo do dia\b/,
+    /\btransferencia enviada pix\b/,
+    /\btransferencia recebida pix\b/,
+    /\bpix transf\b/,
+    /\baplicacao rdb\b/,
+    /\bresgate rdb\b/,
+  ].filter((re) => re.test(normalized)).length;
+  const cardSignals = [
+    /\besta e a sua fatura\b/,
+    /\bresumo da fatura\b/,
+    /\bpagamento total da fatura\b/,
+  ].filter((re) => re.test(normalized)).length;
+  return accountSignals >= 1 && accountSignals >= cardSignals;
+}
 
-FATURA / EXTRATO DE CARTÃO (Nubank, Inter, Itaú, C6, Bradesco, Santander, PicPay, etc.):
-- UM item para CADA compra da lista de lançamentos.
-- NÃO junte compras. NÃO use o total da fatura como um único gasto.
-- Ignore: pagamento recebido, valor total, saldo anterior, limite, vencimento, rotativo, encargo informativo, IOF isolado meramente informativo, anuidade se for zero, publicidade.
-- Para compras e parcelas da fatura: nature = "budget".
-- Data da compra (não a do vencimento). Formato no PDF costuma ser DD/MM ou DD/MM/AA → converta para YYYY-MM-DD. Ano de referência: ${data.today.slice(0, 4)}.
-- amount é o valor daquela linha, em reais com ponto decimal (32,90 → 32.9).
-- Parcela na linha (ex.: 03/10, 3/12, 10x): installment.current/total, kind "card", amount = valor da parcela.
-- Estorno / crédito na fatura: type = "income", nature = "budget".
-
-EXTRATO DE CONTA / CSV BANCÁRIO:
-- Retorne os lançamentos reais, mas diferencie orçamento de mera movimentação financeira.
-- Salário, "PAGTO SALARIO", "REMUNERACAO/SALARIO" e pagamentos de terceiros: type = "income", nature = "budget".
-- Compra, Pix para comércio/pessoa de fora da casa, boleto de energia/seguro/serviço e tarifas reais: type = "expense", nature = "budget".
-- Transferência recebida ou enviada para o MESMO TITULAR do extrato, ou para outra conta claramente pertencente a uma pessoa cadastrada da casa: nature = "transfer". merchant/counterparty deve ser o nome do remetente/favorecido, nunca o banco dele.
-- Para Pix de compra/serviço, merchant/counterparty deve ser o fornecedor ou pessoa favorecida. A instituição financeira receptora deve ficar apenas em description quando for útil para auditoria.
-- "Aplicação RDB", "Aplicação Cofrinhos", aportes: type = "expense", nature = "investment".
-- "Resgate RDB", resgate de cofrinho/investimento: type = "income", nature = "investment".
-- "Pagamento de fatura": type = "expense", nature = "card_payment".
-- "Valor adicionado na conta por cartão de crédito", "Pix no Crédito", empréstimo recebido: type = "income", nature = "financing".
-- "SALDO DO DIA", saldo em conta, limite utilizado/disponível e totalizadores: nature = "neutral"; prefira não retornar essas linhas.
-- Se houver um crédito técnico e um débito de mesmo valor para viabilizar uma compra no crédito, o crédito técnico é "financing" e o débito da compra continua "budget".
-
-HOLERITE / CONTRACHEQUE / DEMONSTRATIVO DE PAGAMENTO (inclusive holerite disponibilizado pelo Itaú):
-- Trate como folha salarial, NÃO como extrato bancário.
-- Retorne EXATAMENTE UM item representando o valor líquido efetivamente recebido pelo trabalhador.
-- amount = "líquido a receber", "salário líquido", "valor líquido" ou equivalente. NUNCA use salário bruto/total de proventos como amount.
-- type = "income", nature = "budget" e category = "salario".
-- merchant = nome da empresa/empregador. Não use "Itaú" como merchant se o empregador estiver identificado.
-- description = "Salário líquido" seguido da competência quando ela estiver visível, por exemplo "Salário líquido 08/2026".
-- date = data de pagamento/crédito quando estiver impressa. Se só houver competência MM/AAAA, use o último dia daquele mês como data de referência.
-- installment = null.
-- Use o nome do empregado para escolher personId apenas quando ele corresponder claramente a uma pessoa cadastrada; caso contrário use ${data.defaultPersonId}.
-- Leia proventos e descontos para entender o documento, mas NÃO crie itens separados para salário-base, horas extras, INSS, IRRF, FGTS, vale-transporte, vale-refeição, plano de saúde, sindicato, pensão, empréstimo consignado ou outros descontos.
-- Motivo: esses valores compõem o holerite e já estão refletidos no líquido. Criá-los como novas entradas/despesas causaria dupla contagem.
-- Se houver 13º, férias ou adiantamento em documento separado, use igualmente o líquido daquele documento como um único item de entrada.
-
-NOTA FISCAL / CUPOM (uma loja só):
-- Aí sim pode juntar itens miúdos da mesma categoria.
-- nature = "budget".
-
-Geral:
-- personId só se o nome aparecer; senão ${data.defaultPersonId}.
-- Pessoas da casa: ${peopleList}
-- Hoje: ${data.today}
-- Até 80 itens, todos os lançamentos reais.`;
-
-  const text = data.text
-    ? `Documento:\n${data.text.slice(0, 36000)}`
-    : "Extraia os lançamentos destas imagens. Se for fatura, cada compra é um item.";
-
-  const result = await geminiGenerate(apiKey, {
-    system,
-    text,
-    images: data.images,
-    maxTokens: 8192,
-  });
-  if (!result.ok) return result;
-
-  try {
-    const parsed = parseJsonObject(result.text) as { items?: unknown[] };
-    const items: ExtractedItem[] = (parsed.items ?? [])
-      .slice(0, 80)
-      .map((raw) => {
-        const row = (raw ?? {}) as Record<string, unknown>;
-        const inst = row.installment as Record<string, unknown> | null;
-        const description = String(row.description ?? row.merchant ?? "Lançamento");
-        const nature = asNature(row.nature);
-        const merchant = resolveMerchant(row, description, nature);
-        return {
-          id: uid(),
-          description,
-          merchant,
-          amount: asAmount(row.amount),
-          date: asDate(row.date, data.today),
-          type: asType(row.type),
-          nature,
-          category: asCategory(row.category),
-          personId: data.people.some((p) => p.id === row.personId)
-            ? String(row.personId)
-            : data.defaultPersonId,
-          selected: true,
-          installment:
-            inst && Number(inst.total) > 1
-              ? {
-                  current: Math.max(1, Number(inst.current) || 1),
-                  total: Math.max(2, Number(inst.total) || 2),
-                  kind: asKind(inst.kind),
-                }
-              : null,
-        };
-      })
-      .filter((item) => item.amount > 0);
-    return { ok: true, items };
-  } catch {
-    return { ok: false, error: "Não entendi o documento. Tente outra foto ou um PDF mais nítido." };
+function splitByLines(text: string, maxChars: number) {
+  const chunks: string[] = [];
+  let current = "";
+  for (const line of text.split("\n")) {
+    const next = current ? `${current}\n${line}` : line;
+    if (next.length > maxChars && current) {
+      chunks.push(current);
+      current = line;
+    } else {
+      current = next;
+    }
   }
+  if (current.trim()) chunks.push(current);
+  return chunks;
+}
+
+function splitStatementText(text: string, maxChars = 9000) {
+  const firstPage = text.indexOf("--- página");
+  const prefix = firstPage > 0 ? text.slice(0, firstPage).trim() : "";
+  const body = firstPage >= 0 ? text.slice(firstPage) : text;
+  const pageBlocks = body.split(/(?=--- página \d+ ---)/g).filter((part) => part.trim());
+  const rawChunks: string[] = [];
+  let current = "";
+
+  for (const page of pageBlocks.length ? pageBlocks : [body]) {
+    if (page.length > maxChars) {
+      if (current.trim()) {
+        rawChunks.push(current);
+        current = "";
+      }
+      rawChunks.push(...splitByLines(page, maxChars));
+      continue;
+    }
+    const next = current ? `${current}\n\n${page}` : page;
+    if (next.length > maxChars && current) {
+      rawChunks.push(current);
+      current = page;
+    } else {
+      current = next;
+    }
+  }
+  if (current.trim()) rawChunks.push(current);
+
+  return rawChunks.map((chunk, index) =>
+    `${prefix ? `${prefix}\n\n` : ""}BLOCO ${index + 1} DE ${rawChunks.length}. Extraia somente os lançamentos presentes neste bloco.\n\n${chunk}`,
+  );
+}
+
+async function extractOne(
+  apiKey: string,
+  system: string,
+  text: string,
+  data: ExtractPayload,
+  images?: ImagePart[],
+  maxTokens = 8192,
+): Promise<ExtractResult> {
+  const result = await geminiGenerate(apiKey, { system, text, images, maxTokens });
+  if (!result.ok) return result;
+  try {
+    return { ok: true, items: parseExtractedItems(result.text, data) };
+  } catch {
+    return { ok: false, error: "Resposta do leitor ficou incompleta." };
+  }
+}
+
+export async function extractWithGemini(data: ExtractPayload): Promise<ExtractResult> {
+  const apiKey = (data.apiKey ?? "").trim();
+  if (!apiKey) return { ok: false, error: "Cole a chave do Gemini em Casa (abaixo das pessoas)." };
+
+  const system = buildExtractionSystem(data);
+  const sourceText = data.text ?? "";
+  const bankStatement = Boolean(sourceText && looksLikeBankStatement(sourceText));
+  const shouldChunk = bankStatement && sourceText.length > 12000;
+
+  if (shouldChunk) {
+    const chunks = splitStatementText(sourceText);
+    const allItems: ExtractedItem[] = [];
+    for (const chunk of chunks) {
+      const result = await extractOne(apiKey, system, `Documento:\n${chunk}`, data, undefined, 6000);
+      if (!result.ok) return result;
+      allItems.push(...result.items);
+    }
+    return allItems.length
+      ? { ok: true, items: allItems.slice(0, 240) }
+      : { ok: false, error: "Não achei lançamentos nesse extrato." };
+  }
+
+  const text = sourceText
+    ? `Documento:\n${sourceText.slice(0, 36000)}`
+    : "Extraia os lançamentos destas imagens. Se for fatura, cada compra é um item.";
+  const single = await extractOne(apiKey, system, text, data, data.images, 8192);
+  if (single.ok) return single;
+
+  // Extratos podem gerar JSON grande mesmo quando o texto total não ultrapassa
+  // o limiar acima. Se a primeira resposta vier truncada, refazemos por blocos.
+  if (bankStatement && sourceText.length > 4000) {
+    const chunks = splitStatementText(sourceText, 7000);
+    if (chunks.length > 1) {
+      const allItems: ExtractedItem[] = [];
+      for (const chunk of chunks) {
+        const result = await extractOne(apiKey, system, `Documento:\n${chunk}`, data, undefined, 5000);
+        if (!result.ok) return result;
+        allItems.push(...result.items);
+      }
+      if (allItems.length) return { ok: true, items: allItems.slice(0, 240) };
+    }
+  }
+
+  return single;
 }
 
 export async function adviseWithGemini(data: AdvicePayload): Promise<
@@ -430,26 +481,13 @@ export async function adviseWithGemini(data: AdvicePayload): Promise<
 > {
   const { apiKey: rawKey, ...facts } = data;
   const apiKey = (rawKey ?? "").trim();
-  if (!apiKey) {
-    return { ok: false, error: "Cole a chave do Gemini em Casa (abaixo das pessoas)." };
-  }
+  if (!apiKey) return { ok: false, error: "Cole a chave do Gemini em Casa (abaixo das pessoas)." };
 
   const system = `Você é um conselheiro financeiro direto, em português do Brasil, para um orçamento doméstico.
 Sem moralismo, sem enrolação. Foque em cortes concretos e no peso das parcelas.
 Responda APENAS JSON:
-{
-  "summary": "2 frases, tom calmo",
-  "items": [
-    {
-      "title": "até 42 caracteres",
-      "body": "1-2 frases com número em R$",
-      "impact": number (economia mensal estimada),
-      "category": one of [${CATEGORY_IDS}] | null,
-      "severity": "high" | "medium" | "low"
-    }
-  ]
-}
-3 a 6 itens, os de maior impacto primeiro.`;
+{"summary":"2 frases, tom calmo","items":[{"title":"até 42 caracteres","body":"1-2 frases com número em R$","impact":number,"category":"categoria ou null","severity":"high|medium|low"}]}
+Categorias: [${CATEGORY_IDS}]. Retorne 3 a 6 itens, os de maior impacto primeiro.`;
 
   const result = await geminiGenerate(apiKey, {
     system,
