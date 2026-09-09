@@ -1,3 +1,4 @@
+import { applyCategoryRules } from "./category-rules";
 import { applyMerchantAlias } from "./merchant-aliases";
 import type { ExtractedItem, Transaction, TxNature } from "./types";
 
@@ -105,13 +106,14 @@ export function inferMovementNature(row: MovementLike): TxNature {
 }
 
 export function classifyExtractedItems(items: ExtractedItem[]) {
-  return items.map((item) => {
+  const classified = items.map((item) => {
     const aliased = { ...item, merchant: applyMerchantAlias(item.merchant) };
     const normalized = isExpenseRefund(aliased)
       ? { ...aliased, type: "income" as const }
       : aliased;
     return { ...normalized, nature: inferMovementNature(normalized) };
   });
+  return applyCategoryRules(classified);
 }
 
 function transferLike(row: MovementLike) {
