@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowDownRight, ArrowUpRight, Sparkles } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, CalendarClock, Sparkles } from "lucide-react";
 import { CashPositionCard } from "@/components/cash-position-card";
 import { MonthHeader } from "@/components/month-header";
 import { PersonAvatar } from "@/components/person-avatar";
 import { TransactionEdit } from "@/components/transaction-edit";
 import { categoryLabel } from "@/lib/categories";
 import { formatBRL, formatBRLCompact, formatShortDate } from "@/lib/money";
+import { recurringExpenses, recurringMonthlyTotal } from "@/lib/recurring";
 import {
   budgetUsage,
   committedFuture,
@@ -35,6 +36,8 @@ function Home() {
   const maxDay = Math.max(1, ...days);
   const upcoming = upcomingInstallments(state, todayIso(), 3);
   const committed = committedFuture(state, todayIso());
+  const recurring = recurringExpenses(state, 5);
+  const recurringTotal = recurringMonthlyTotal(recurring);
   const budgets = budgetUsage(state, month).filter((b) => b.used > 0).slice(0, 4);
   const recent = [...rows]
     .filter((t) => t.type === "expense")
@@ -184,6 +187,38 @@ function Home() {
           )}
         </ul>
       </section>
+
+      {recurring.length > 0 ? (
+        <section className="mx-5 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+          <div className="flex items-start gap-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary-soft text-primary">
+              <CalendarClock className="size-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 className="font-display text-xl">Recorrências detectadas</h2>
+              <p className="mt-1 text-sm text-muted">
+                Cerca de <span className="font-medium text-fg tabular-nums">{formatBRL(recurringTotal)}</span> por mês em cobranças que se repetem.
+              </p>
+            </div>
+          </div>
+          <ul className="mt-3 divide-y divide-line">
+            {recurring.slice(0, 3).map((item) => (
+              <li key={item.key} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{item.merchant}</span>
+                  <span className="block text-xs text-muted">
+                    provável em {formatShortDate(item.nextDate)} · {item.occurrences} meses observados
+                  </span>
+                </span>
+                <span className="shrink-0 tabular-nums">{formatBRL(item.averageAmount)}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[11px] leading-relaxed text-muted">
+            Estimativa automática pelo histórico; o Núcleo não cria lançamentos futuros nem altera seus dados.
+          </p>
+        </section>
+      ) : null}
 
       <section className="mx-5">
         <Link
