@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowDownRight, ArrowUpRight, CalendarClock, Sparkles } from "lucide-react";
+import { CashFlowForecastCard } from "@/components/cash-flow-forecast-card";
 import { CashPositionCard } from "@/components/cash-position-card";
 import { MonthHeader } from "@/components/month-header";
 import { PersonAvatar } from "@/components/person-avatar";
@@ -158,6 +159,8 @@ function Home() {
           })}
         </ul>
       </section>
+
+      <CashFlowForecastCard />
 
       <section className="mx-5 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
         <div className="flex items-start justify-between gap-3">
