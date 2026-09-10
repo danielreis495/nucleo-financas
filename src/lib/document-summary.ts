@@ -50,9 +50,11 @@ function isoFromBr(raw: string | undefined) {
 function isoFromPtDate(raw: string | undefined, fallbackYear: number) {
   if (!raw) return null;
   const normalized = normalize(raw);
-  const match = normalized.match(/(\d{1,2})\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)(?:\s+(\d{4}))?/);
+  const match = normalized.match(
+    /(\d{1,2})\s+(?:de\s+)?(jan(?:eiro)?|fev(?:ereiro)?|mar(?:co)?|abr(?:il)?|mai(?:o)?|jun(?:ho)?|jul(?:ho)?|ago(?:sto)?|set(?:embro)?|out(?:ubro)?|nov(?:embro)?|dez(?:embro)?)(?:\s+(?:de\s+)?(\d{4}))?/,
+  );
   if (!match) return null;
-  const month = PT_MONTH[match[2]];
+  const month = PT_MONTH[match[2].slice(0, 3)];
   const year = Number(match[3] ?? fallbackYear);
   return `${year}-${String(month).padStart(2, "0")}-${match[1].padStart(2, "0")}`;
 }
@@ -83,6 +85,22 @@ function holderFrom(text: string) {
   return hello?.[1]?.replace(/\s+/g, " ").trim() ?? undefined;
 }
 
+function statementPeriodEnd(text: string) {
+  const numeric = text.match(/(?:até|ate|a)\s*(\d{2}\/\d{2}\/\d{4})/i);
+  const numericDate = isoFromBr(numeric?.[1]);
+  if (numericDate) return numericDate;
+
+  const normalized = normalize(text.slice(0, 5000));
+  const textual = normalized.match(
+    /\d{1,2}\s+(?:de\s+)?(?:jan(?:eiro)?|fev(?:ereiro)?|mar(?:co)?|abr(?:il)?|mai(?:o)?|jun(?:ho)?|jul(?:ho)?|ago(?:sto)?|set(?:embro)?|out(?:ubro)?|nov(?:embro)?|dez(?:embro)?)(?:\s+(?:de\s+)?\d{4})?\s+(?:a|ate)\s+(\d{1,2}\s+(?:de\s+)?(?:jan(?:eiro)?|fev(?:ereiro)?|mar(?:co)?|abr(?:il)?|mai(?:o)?|jun(?:ho)?|jul(?:ho)?|ago(?:sto)?|set(?:embro)?|out(?:ubro)?|nov(?:embro)?|dez(?:embro)?)(?:\s+(?:de\s+)?\d{4})?)/,
+  );
+  if (!textual?.[1]) return null;
+
+  const year = Number(textual[1].match(/\b(\d{4})\b/)?.[1] ?? normalized.match(/\b(\d{4})\b/)?.[1]);
+  if (!Number.isFinite(year)) return null;
+  return isoFromPtDate(textual[1], year);
+}
+
 function bankStatementSummary(text: string): FinancialDocumentSummary | null {
   const normalized = normalize(text.slice(0, 12000));
   const looksLikeStatement =
@@ -108,8 +126,7 @@ function bankStatementSummary(text: string): FinancialDocumentSummary | null {
 
   if (closingBalance === null) return null;
 
-  const periodEnd = text.match(/(?:até|ate|a)\s*(\d{2}\/\d{2}\/\d{4})/i);
-  if (!balanceDate) balanceDate = isoFromBr(periodEnd?.[1]);
+  if (!balanceDate) balanceDate = statementPeriodEnd(text);
   if (!balanceDate) return null;
 
   return {
