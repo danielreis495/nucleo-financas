@@ -330,6 +330,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           label: trimmed,
           amount,
           date,
+          fulfilled: false,
           createdAt: new Date().toISOString(),
         };
         set({ plannedIncomes: [item, ...(get().plannedIncomes ?? [])], demo: false });
