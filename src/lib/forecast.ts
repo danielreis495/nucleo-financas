@@ -115,7 +115,7 @@ function matchesScheduledRecurring(
 }
 
 function recurringOccurrences(
-  state: Pick<FinanceState, "transactions" | "plannedIncomes">,
+  state: Pick<FinanceState, "transactions">,
   fromIso: string,
   toIso: string,
   scheduled: Transaction[],
@@ -156,7 +156,7 @@ function recurringOccurrences(
  * quando já existe um lançamento agendado equivalente.
  */
 export function cashFlowForecast(
-  state: Pick<FinanceState, "transactions">,
+  state: Pick<FinanceState, "transactions" | "plannedIncomes">,
   fromIso: string,
   horizonDays = 30,
 ): CashFlowForecast {
