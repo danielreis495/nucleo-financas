@@ -134,17 +134,17 @@ export function AdvisorChat({ month }: { month: string }) {
       forecasts: {
         next30Days: {
           expectedOutflow: forecast30.expectedOutflow,
-          expectedIncome: forecast30.scheduledIncome,
+          expectedIncome: forecast30.expectedIncome,
           expectedNet: forecast30.expectedNet,
         },
         next60Days: {
           expectedOutflow: forecast60.expectedOutflow,
-          expectedIncome: forecast60.scheduledIncome,
+          expectedIncome: forecast60.expectedIncome,
           expectedNet: forecast60.expectedNet,
         },
         next90Days: {
           expectedOutflow: forecast90.expectedOutflow,
-          expectedIncome: forecast90.scheduledIncome,
+          expectedIncome: forecast90.expectedIncome,
           expectedNet: forecast90.expectedNet,
           nextItems: forecast90.items.slice(0, 18),
         },
