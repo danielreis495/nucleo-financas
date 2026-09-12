@@ -8,7 +8,7 @@ export type ForecastItem = {
   label: string;
   amount: number;
   type: "expense" | "income";
-  source: "scheduled" | "recurring";
+  source: "scheduled" | "recurring" | "planned_income";
   confidence: "confirmed" | "high" | "medium";
 };
 
@@ -17,6 +17,8 @@ export type CashFlowForecast = {
   toDate: string;
   scheduledExpenses: number;
   scheduledIncome: number;
+  plannedIncome: number;
+  expectedIncome: number;
   predictedRecurring: number;
   expectedOutflow: number;
   expectedNet: number;
@@ -113,7 +115,7 @@ function matchesScheduledRecurring(
 }
 
 function recurringOccurrences(
-  state: Pick<FinanceState, "transactions">,
+  state: Pick<FinanceState, "transactions" | "plannedIncomes">,
   fromIso: string,
   toIso: string,
   scheduled: Transaction[],
@@ -161,6 +163,9 @@ export function cashFlowForecast(
   const toDate = addDays(fromIso, horizonDays);
   const scheduled = scheduledRows(state, fromIso, toDate);
   const recurring = recurringOccurrences(state, fromIso, toDate, scheduled);
+  const plannedIncomeRows = (state.plannedIncomes ?? []).filter(
+    (item) => !item.fulfilled && item.date >= fromIso && item.date <= toDate,
+  );
 
   const scheduledExpenses = scheduled
     .filter((row) => row.type === "expense")
@@ -168,6 +173,7 @@ export function cashFlowForecast(
   const scheduledIncome = scheduled
     .filter((row) => row.type === "income")
     .reduce((sum, row) => sum + row.amount, 0);
+  const plannedIncome = plannedIncomeRows.reduce((sum, row) => sum + row.amount, 0);
   const predictedRecurring = recurring.reduce((sum, row) => sum + row.averageAmount, 0);
 
   const scheduledItems: ForecastItem[] = scheduled.map((row) => ({
@@ -190,19 +196,32 @@ export function cashFlowForecast(
     confidence: row.confidence,
   }));
 
-  const items = [...scheduledItems, ...recurringItems].sort(
+  const plannedIncomeItems: ForecastItem[] = plannedIncomeRows.map((row) => ({
+    key: `planned-income:${row.id}`,
+    date: row.date,
+    label: row.label,
+    amount: row.amount,
+    type: "income",
+    source: "planned_income",
+    confidence: "medium",
+  }));
+
+  const items = [...scheduledItems, ...recurringItems, ...plannedIncomeItems].sort(
     (a, b) => a.date.localeCompare(b.date) || a.label.localeCompare(b.label, "pt-BR"),
   );
   const expectedOutflow = scheduledExpenses + predictedRecurring;
+  const expectedIncome = scheduledIncome + plannedIncome;
 
   return {
     fromDate: fromIso,
     toDate,
     scheduledExpenses,
     scheduledIncome,
+    plannedIncome,
+    expectedIncome,
     predictedRecurring,
     expectedOutflow,
-    expectedNet: scheduledIncome - expectedOutflow,
+    expectedNet: expectedIncome - expectedOutflow,
     items,
   };
 }
