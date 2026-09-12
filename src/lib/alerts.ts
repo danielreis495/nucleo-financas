@@ -112,7 +112,7 @@ export function financialAlerts(
 
   if (month === currentMonth && cash.cashKnown) {
     const forecast = cashFlowForecast(state, today, 30);
-    const resources = Math.max(0, cash.cashBalance) + Math.max(0, forecast.scheduledIncome);
+    const resources = Math.max(0, cash.cashBalance) + Math.max(0, forecast.expectedIncome);
     if (forecast.expectedOutflow > resources + 50) {
       alerts.push({
         id: "forecast-gap-30",
