@@ -92,6 +92,15 @@ export type CategoryBudget = {
   monthlyLimit: number;
 };
 
+export type PlannedIncome = {
+  id: string;
+  label: string;
+  amount: number;
+  date: string;
+  fulfilled?: boolean;
+  createdAt: string;
+};
+
 export type AdviceItem = {
   id: string;
   title: string;
@@ -150,6 +159,7 @@ export type FinanceState = {
   transactions: Transaction[];
   plans: InstallmentPlan[];
   budgets: CategoryBudget[];
+  plannedIncomes: PlannedIncome[];
   customCategories: CustomCategory[];
   advice: AdviceCache | null;
   demo: boolean;

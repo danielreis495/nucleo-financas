@@ -8,7 +8,7 @@ export type ForecastItem = {
   label: string;
   amount: number;
   type: "expense" | "income";
-  source: "scheduled" | "recurring";
+  source: "scheduled" | "recurring" | "planned_income";
   confidence: "confirmed" | "high" | "medium";
 };
 
@@ -17,6 +17,8 @@ export type CashFlowForecast = {
   toDate: string;
   scheduledExpenses: number;
   scheduledIncome: number;
+  plannedIncome: number;
+  expectedIncome: number;
   predictedRecurring: number;
   expectedOutflow: number;
   expectedNet: number;
@@ -33,12 +35,11 @@ export type LikelySalary = {
 export type MonthlyIncomeForecast = {
   month: string;
   received: number;
-  confirmed: number;
-  estimatedRemaining: number;
+  salaryExpected: number;
+  manualPlanned: number;
   expectedTotal: number;
-  historicalAverage: number;
-  observedMonths: number;
-  confidence: "high" | "medium" | "low" | "insufficient";
+  salaryConfidence: "confirmed" | "high" | "medium" | "low" | "none";
+  observedSalaryMonths: number;
 };
 
 function normalize(value: string) {
@@ -155,13 +156,16 @@ function recurringOccurrences(
  * quando já existe um lançamento agendado equivalente.
  */
 export function cashFlowForecast(
-  state: Pick<FinanceState, "transactions">,
+  state: Pick<FinanceState, "transactions" | "plannedIncomes">,
   fromIso: string,
   horizonDays = 30,
 ): CashFlowForecast {
   const toDate = addDays(fromIso, horizonDays);
   const scheduled = scheduledRows(state, fromIso, toDate);
   const recurring = recurringOccurrences(state, fromIso, toDate, scheduled);
+  const plannedIncomeRows = (state.plannedIncomes ?? []).filter(
+    (item) => !item.fulfilled && item.date >= fromIso && item.date <= toDate,
+  );
 
   const scheduledExpenses = scheduled
     .filter((row) => row.type === "expense")
@@ -169,6 +173,7 @@ export function cashFlowForecast(
   const scheduledIncome = scheduled
     .filter((row) => row.type === "income")
     .reduce((sum, row) => sum + row.amount, 0);
+  const plannedIncome = plannedIncomeRows.reduce((sum, row) => sum + row.amount, 0);
   const predictedRecurring = recurring.reduce((sum, row) => sum + row.averageAmount, 0);
 
   const scheduledItems: ForecastItem[] = scheduled.map((row) => ({
@@ -191,19 +196,32 @@ export function cashFlowForecast(
     confidence: row.confidence,
   }));
 
-  const items = [...scheduledItems, ...recurringItems].sort(
+  const plannedIncomeItems: ForecastItem[] = plannedIncomeRows.map((row) => ({
+    key: `planned-income:${row.id}`,
+    date: row.date,
+    label: row.label,
+    amount: row.amount,
+    type: "income",
+    source: "planned_income",
+    confidence: "medium",
+  }));
+
+  const items = [...scheduledItems, ...recurringItems, ...plannedIncomeItems].sort(
     (a, b) => a.date.localeCompare(b.date) || a.label.localeCompare(b.label, "pt-BR"),
   );
   const expectedOutflow = scheduledExpenses + predictedRecurring;
+  const expectedIncome = scheduledIncome + plannedIncome;
 
   return {
     fromDate: fromIso,
     toDate,
     scheduledExpenses,
     scheduledIncome,
+    plannedIncome,
+    expectedIncome,
     predictedRecurring,
     expectedOutflow,
-    expectedNet: scheduledIncome - expectedOutflow,
+    expectedNet: expectedIncome - expectedOutflow,
     items,
   };
 }
@@ -289,12 +307,14 @@ function realBudgetIncome(row: Transaction) {
 }
 
 /**
- * Previsão de entradas do mês. O que já foi recebido e o que está agendado
- * permanecem separados da estimativa. A estimativa usa a média dos últimos
- * três meses com renda observada e nunca cria lançamentos.
+ * Previsão de entradas do mês com uma regra conservadora:
+ * - entradas realizadas vêm do extrato;
+ * - apenas salário/remuneração pode ser projetado automaticamente;
+ * - qualquer outra entrada futura precisa ser cadastrada pelo usuário.
+ * Entradas previstas concluídas não entram novamente na projeção.
  */
 export function monthlyIncomeForecast(
-  state: Pick<FinanceState, "transactions">,
+  state: Pick<FinanceState, "transactions" | "plannedIncomes">,
   targetMonth: string,
 ): MonthlyIncomeForecast {
   const current = state.transactions.filter(
@@ -303,55 +323,49 @@ export function monthlyIncomeForecast(
   const received = current
     .filter((row) => row.status === "posted")
     .reduce((sum, row) => sum + row.amount, 0);
-  const confirmed = current
-    .filter((row) => row.status === "scheduled")
+
+  const salaryReceived = current
+    .filter((row) => row.status === "posted" && salaryLike(row))
+    .reduce((sum, row) => sum + row.amount, 0);
+  const scheduledSalary = current
+    .filter(
+      (row) =>
+        row.status === "scheduled" &&
+        row.type === "income" &&
+        countsInBudget(row) &&
+        (row.category === "salario" ||
+          /\bsalario\b|\bremuneracao\b/.test(normalize(`${row.merchant} ${row.description}`))),
+    )
     .reduce((sum, row) => sum + row.amount, 0);
 
-  const history = new Map<string, number>();
-  for (const row of state.transactions) {
-    if (!realBudgetIncome(row) || row.status !== "posted") continue;
-    const month = row.date.slice(0, 7);
-    if (month >= targetMonth) continue;
-    history.set(month, (history.get(month) ?? 0) + row.amount);
-  }
-
-  const recent = [...history.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .slice(-3);
-  const observedMonths = recent.length;
-  const historicalAverage =
-    observedMonths > 0
-      ? recent.reduce((sum, [, amount]) => sum + amount, 0) / observedMonths
-      : 0;
-
-  const expectedFromHistory = Math.max(0, historicalAverage - received - confirmed);
   const targetStart = `${targetMonth}-01`;
-  const salary = nextLikelySalary(state, targetStart);
-  const salaryInsideMonth =
-    salary && salary.date.slice(0, 7) === targetMonth ? salary.estimatedAmount : 0;
+  const likelySalary = nextLikelySalary(state, targetStart);
+  const inferredSalary =
+    salaryReceived > 0 || scheduledSalary > 0
+      ? 0
+      : likelySalary && likelySalary.date.slice(0, 7) === targetMonth
+        ? likelySalary.estimatedAmount
+        : 0;
 
-  // O salário provável só eleva a estimativa quando a média histórica ainda
-  // não cobre o que deve entrar. Isso evita somá-lo duas vezes.
-  const estimatedRemaining = Math.max(expectedFromHistory, Math.max(0, salaryInsideMonth - received - confirmed));
-  const confidence: MonthlyIncomeForecast["confidence"] =
-    observedMonths >= 3
-      ? "high"
-      : observedMonths === 2
-        ? "medium"
-        : observedMonths === 1
-          ? "low"
-          : salaryInsideMonth > 0
-            ? "low"
-            : "insufficient";
+  const planned = (state.plannedIncomes ?? []).filter(
+    (item) => !item.fulfilled && item.date.slice(0, 7) === targetMonth,
+  );
+  const manualPlanned = planned.reduce((sum, item) => sum + item.amount, 0);
+  const salaryExpected = scheduledSalary + inferredSalary;
 
   return {
     month: targetMonth,
     received,
-    confirmed,
-    estimatedRemaining,
-    expectedTotal: received + confirmed + estimatedRemaining,
-    historicalAverage,
-    observedMonths,
-    confidence,
+    salaryExpected,
+    manualPlanned,
+    expectedTotal: received + salaryExpected + manualPlanned,
+    salaryConfidence:
+      scheduledSalary > 0
+        ? "confirmed"
+        : inferredSalary > 0 && likelySalary
+          ? likelySalary.confidence
+          : "none",
+    observedSalaryMonths: inferredSalary > 0 && likelySalary ? likelySalary.observedMonths : 0,
   };
 }
+
