@@ -23,6 +23,13 @@ export type CashFlowForecast = {
   items: ForecastItem[];
 };
 
+export type LikelySalary = {
+  date: string;
+  estimatedAmount: number;
+  confidence: "confirmed" | "high" | "medium" | "low";
+  observedMonths: number;
+};
+
 function normalize(value: string) {
   return value
     .normalize("NFD")
@@ -33,10 +40,24 @@ function normalize(value: string) {
     .trim();
 }
 
+function isoDate(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 function addDays(iso: string, days: number) {
   const date = new Date(`${iso}T12:00:00`);
   date.setDate(date.getDate() + days);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return isoDate(date);
+}
+
+function addOneMonth(iso: string) {
+  const date = new Date(`${iso}T12:00:00`);
+  const day = date.getDate();
+  date.setDate(1);
+  date.setMonth(date.getMonth() + 1);
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0, 12).getDate();
+  date.setDate(Math.min(day, lastDay));
+  return isoDate(date);
 }
 
 function daysApart(left: string, right: string) {
@@ -70,14 +91,56 @@ function matchesScheduledRecurring(
     const rowMerchant = normalize(row.merchant);
     const sameMerchant =
       rowMerchant === merchant ||
-      (rowMerchant.length >= 5 && merchant.length >= 5 && (rowMerchant.includes(merchant) || merchant.includes(rowMerchant)));
-    return sameMerchant && daysApart(row.date, recurring.nextDate) <= 7 && amountClose(row.amount, recurring.averageAmount);
+      (rowMerchant.length >= 5 &&
+        merchant.length >= 5 &&
+        (rowMerchant.includes(merchant) || merchant.includes(rowMerchant)));
+    return (
+      sameMerchant &&
+      daysApart(row.date, recurring.nextDate) <= 7 &&
+      amountClose(row.amount, recurring.averageAmount)
+    );
   });
+}
+
+function recurringOccurrences(
+  state: Pick<FinanceState, "transactions">,
+  fromIso: string,
+  toIso: string,
+  scheduled: Transaction[],
+) {
+  const out: {
+    key: string;
+    merchant: string;
+    averageAmount: number;
+    nextDate: string;
+    confidence: "high" | "medium";
+  }[] = [];
+
+  for (const recurring of recurringExpenses(state, 24)) {
+    let nextDate = recurring.nextDate;
+    while (nextDate < fromIso) nextDate = addOneMonth(nextDate);
+
+    while (nextDate <= toIso) {
+      const occurrence = { ...recurring, nextDate };
+      if (!matchesScheduledRecurring(occurrence, scheduled)) {
+        out.push({
+          key: recurring.key,
+          merchant: recurring.merchant,
+          averageAmount: recurring.averageAmount,
+          nextDate,
+          confidence: recurring.confidence,
+        });
+      }
+      nextDate = addOneMonth(nextDate);
+    }
+  }
+  return out;
 }
 
 /**
  * Projeção somente de leitura: combina lançamentos já agendados com recorrências
- * detectadas pelo histórico. Não persiste previsões e evita contar uma recorrência
+ * detectadas pelo histórico. Em horizontes maiores que 30 dias, repete as
+ * recorrências mensalmente até o fim da janela e evita contar uma recorrência
  * quando já existe um lançamento agendado equivalente.
  */
 export function cashFlowForecast(
@@ -87,9 +150,7 @@ export function cashFlowForecast(
 ): CashFlowForecast {
   const toDate = addDays(fromIso, horizonDays);
   const scheduled = scheduledRows(state, fromIso, toDate);
-  const recurring = recurringExpenses(state, 24)
-    .filter((row) => row.nextDate >= fromIso && row.nextDate <= toDate)
-    .filter((row) => !matchesScheduledRecurring(row, scheduled));
+  const recurring = recurringOccurrences(state, fromIso, toDate, scheduled);
 
   const scheduledExpenses = scheduled
     .filter((row) => row.type === "expense")
@@ -134,4 +195,74 @@ export function cashFlowForecast(
     expectedNet: scheduledIncome - expectedOutflow,
     items,
   };
+}
+
+function salaryLike(row: Transaction) {
+  if (
+    row.status !== "posted" ||
+    row.type !== "income" ||
+    !countsInBudget(row)
+  ) {
+    return false;
+  }
+  if (row.category === "salario") return true;
+  const text = normalize(`${row.merchant} ${row.description}`);
+  return /\bsalario\b|\bremuneracao\b|\bfolha de pagamento\b|\bpagto salario\b/.test(text);
+}
+
+/**
+ * Estima a próxima renda salarial sem criar lançamento. Primeiro respeita uma
+ * entrada salarial já agendada; na ausência dela, projeta a data do último
+ * recebimento um mês à frente e usa a média mensal observada.
+ */
+export function nextLikelySalary(
+  state: Pick<FinanceState, "transactions">,
+  fromIso: string,
+): LikelySalary | null {
+  const scheduled = state.transactions
+    .filter(
+      (row) =>
+        row.status === "scheduled" &&
+        row.type === "income" &&
+        countsInBudget(row) &&
+        row.date >= fromIso &&
+        (row.category === "salario" ||
+          /\bsalario\b|\bremuneracao\b/.test(normalize(`${row.merchant} ${row.description}`))),
+    )
+    .sort((a, b) => a.date.localeCompare(b.date))[0];
+
+  if (scheduled) {
+    return {
+      date: scheduled.date,
+      estimatedAmount: scheduled.amount,
+      confidence: "confirmed",
+      observedMonths: 0,
+    };
+  }
+
+  const rows = state.transactions
+    .filter((row) => salaryLike(row) && row.date < fromIso)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (rows.length === 0) return null;
+
+  const byMonth = new Map<string, number>();
+  for (const row of rows) {
+    const month = row.date.slice(0, 7);
+    byMonth.set(month, (byMonth.get(month) ?? 0) + row.amount);
+  }
+  const monthly = [...byMonth.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .slice(-3);
+  const estimatedAmount =
+    monthly.reduce((sum, [, amount]) => sum + amount, 0) / Math.max(1, monthly.length);
+
+  const last = rows[rows.length - 1];
+  let date = addOneMonth(last.date);
+  while (date < fromIso) date = addOneMonth(date);
+
+  const observedMonths = byMonth.size;
+  const confidence: LikelySalary["confidence"] =
+    observedMonths >= 3 ? "high" : observedMonths === 2 ? "medium" : "low";
+
+  return { date, estimatedAmount, confidence, observedMonths };
 }
