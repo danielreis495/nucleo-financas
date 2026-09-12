@@ -14,7 +14,7 @@ const NAV: {
   { to: "/", label: "Início", icon: Home },
   { to: "/extrato", label: "Extrato", icon: Receipt },
   { to: "/captura", label: "Captura", icon: ScanLine, primary: true },
-  { to: "/conselhos", label: "Consultor", icon: Sparkles },
+  { to: "/conselhos", label: "Núcleo IA", icon: Sparkles },
   { to: "/casa", label: "Casa", icon: Users },
 ];
 

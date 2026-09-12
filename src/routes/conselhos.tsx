@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Loader2, ShieldCheck, Sparkles, Target, WalletCards } from "lucide-react";
+import { AdvisorChat } from "@/components/advisor-chat";
 import { Button } from "@/components/ui/button";
 import { adviseSpending } from "@/lib/ai";
 import { cashPositionForMonth } from "@/lib/cash-position";
@@ -220,11 +221,13 @@ function ConselhosPage() {
 
   return (
     <main className="flex flex-col px-5 pt-6 pb-8">
-      <p className="text-xs font-medium tracking-wide text-muted uppercase">Consultor financeiro</p>
-      <h1 className="font-display text-3xl tracking-tight">Raio-X de {formatMonthTitle(month)}</h1>
+      <p className="text-xs font-medium tracking-wide text-muted uppercase">Núcleo IA</p>
+      <h1 className="font-display text-3xl tracking-tight">Seu copiloto financeiro</h1>
       <p className="mt-2 text-sm leading-relaxed text-muted">
-        O Núcleo separa resultado do orçamento de caixa real. As orientações abaixo priorizam liquidez quando houver faturas sem cobertura.
+        Pergunte sobre seus gastos, caixa, faturas e próximos meses. Abaixo, o Raio-X de {formatMonthTitle(month)} continua disponível para conferência.
       </p>
+
+      <AdvisorChat month={month} />
 
       <section className="mt-5 rounded-xl bg-primary px-5 py-5 text-primary-fg">
         <div className="flex items-start justify-between gap-4">
