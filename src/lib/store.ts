@@ -14,6 +14,7 @@ import type {
   Person,
   PersonColor,
   PersonRole,
+  PlannedIncome,
   Transaction,
   TxNature,
   TxSource,
@@ -57,6 +58,9 @@ type FinanceActions = {
   restoreTransaction: (tx: Transaction) => void;
   addCustomCategory: (input: { label: string; group: CategoryGroup }) => string;
   setBudget: (category: CategoryId, monthlyLimit: number) => void;
+  addPlannedIncome: (input: { label: string; amount: number; date: string }) => void;
+  updatePlannedIncome: (id: string, patch: Partial<PlannedIncome>) => void;
+  removePlannedIncome: (id: string) => void;
   importExtracted: (
     items: ExtractedItem[],
     source: TxSource,
@@ -91,6 +95,7 @@ const emptyState = (): FinanceState => ({
   transactions: [],
   plans: [],
   budgets: [],
+  plannedIncomes: [],
   customCategories: [],
   advice: null,
   demo: false,
@@ -317,6 +322,26 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           : [...budgets, { category, monthlyLimit }];
         set({ budgets: next });
       },
+      addPlannedIncome: ({ label, amount, date }) => {
+        const trimmed = label.trim();
+        if (!trimmed || !Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+        const item: PlannedIncome = {
+          id: uid(),
+          label: trimmed,
+          amount,
+          date,
+          createdAt: new Date().toISOString(),
+        };
+        set({ plannedIncomes: [item, ...(get().plannedIncomes ?? [])], demo: false });
+      },
+      updatePlannedIncome: (id, patch) =>
+        set({
+          plannedIncomes: (get().plannedIncomes ?? []).map((item) =>
+            item.id === id ? { ...item, ...patch } : item,
+          ),
+        }),
+      removePlannedIncome: (id) =>
+        set({ plannedIncomes: (get().plannedIncomes ?? []).filter((item) => item.id !== id) }),
       importExtracted: (items, source, accountId = null, origin) => {
         const selected = items.filter((i) => i.selected && i.amount > 0);
         const newPlans: FinanceState["plans"] = [];
@@ -452,6 +477,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           ...current,
           ...saved,
           accounts: Array.isArray(saved.accounts) ? saved.accounts : [],
+          plannedIncomes: Array.isArray(saved.plannedIncomes) ? saved.plannedIncomes : [],
           transactions: reconcileTransactionNatures(savedTransactions),
         };
       },
@@ -462,6 +488,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         transactions: s.transactions,
         plans: s.plans,
         budgets: s.budgets,
+        plannedIncomes: s.plannedIncomes,
         customCategories: s.customCategories,
         advice: s.advice,
         demo: s.demo,
