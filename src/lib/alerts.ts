@@ -38,7 +38,7 @@ function formatMoney(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 }
 
-function exactDuplicateGroups(rows: Transaction[]) {
+export function exactDuplicateGroups(rows: Transaction[]) {
   const groups = new Map<string, Transaction[]>();
   for (const row of rows) {
     if (!row.sourceFileName || row.status !== "posted") continue;
@@ -54,6 +54,23 @@ function exactDuplicateGroups(rows: Transaction[]) {
     groups.set(key, [...(groups.get(key) ?? []), row]);
   }
   return [...groups.values()].filter((group) => group.length > 1);
+}
+
+export function exactDuplicateTransactionIds(rows: Transaction[]) {
+  return new Set(exactDuplicateGroups(rows).flatMap((group) => group.map((row) => row.id)));
+}
+
+export function unidentifiedTransactionIds(rows: Transaction[]) {
+  return new Set(
+    rows
+      .filter(
+        (row) =>
+          row.source !== "manual" &&
+          countsInBudget(row) &&
+          (/favorecido nao identificado/.test(normalize(row.merchant)) || !row.originLabel),
+      )
+      .map((row) => row.id),
+  );
 }
 
 function dueLabel(date: string | undefined) {
