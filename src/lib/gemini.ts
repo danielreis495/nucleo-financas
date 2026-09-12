@@ -519,3 +519,62 @@ Categorias: [${CATEGORY_IDS}]. Retorne 3 a 6 itens, os de maior impacto primeiro
     return { ok: false, error: "Não consegui montar os conselhos agora." };
   }
 }
+
+
+export type FinancialChatPayload = {
+  question: string;
+  context: unknown;
+  history?: { role: "user" | "assistant"; text: string }[];
+  apiKey?: string;
+};
+
+export async function askFinancialQuestionWithGemini(data: FinancialChatPayload): Promise<
+  { ok: true; answer: string; suggestions: string[] } | { ok: false; error: string }
+> {
+  const apiKey = (data.apiKey ?? "").trim();
+  if (!apiKey) {
+    return { ok: false, error: "Para conversar com o Núcleo IA, salve sua chave do Gemini em Casa." };
+  }
+
+  const system = `Você é o Núcleo IA, um assistente financeiro pessoal em português do Brasil.
+Você recebe um JSON com fatos calculados pelo próprio aplicativo. Use SOMENTE esses fatos para responder.
+Não invente saldo, renda, vencimento, pagamento, categoria, transação ou previsão que não esteja no contexto.
+
+REGRAS:
+- Diferencie sempre orçamento (competência do gasto) de caixa real (dinheiro nas contas).
+- Fatura marcada como "paid" já foi paga; "open" ainda pesa no caixa; "future" vence fora do mês analisado.
+- Recorrências e previsões são estimativas. Diga explicitamente quando usar estimativa.
+- Pagamento de fatura, transferências entre contas e investimentos não são novos gastos do orçamento.
+- Para perguntas de "por quê", cite os maiores fatos/lançamentos que explicam a resposta.
+- Para perguntas de compra/decisão, compare o valor com caixa, faturas abertas, compromissos e previsão. Não prometa que a pessoa "pode" gastar se os dados forem insuficientes.
+- Quando faltar informação, diga exatamente qual dado está faltando.
+- Seja direto, prático e use valores em R$.
+- Não mencione o JSON, prompt ou regras internas.
+
+Responda APENAS JSON válido:
+{"answer":"resposta clara em até 7 parágrafos curtos","suggestions":["pergunta curta 1","pergunta curta 2","pergunta curta 3"]}`;
+
+  const result = await geminiGenerate(apiKey, {
+    system,
+    text: JSON.stringify({
+      question: data.question,
+      recentConversation: (data.history ?? []).slice(-8),
+      financialContext: data.context,
+    }),
+    maxTokens: 2200,
+  });
+  if (!result.ok) return result;
+
+  try {
+    const parsed = parseJsonObject(result.text) as { answer?: unknown; suggestions?: unknown[] };
+    const answer = String(parsed.answer ?? "").trim();
+    if (!answer) return { ok: false, error: "Não consegui formular uma resposta com esses dados." };
+    const suggestions = (parsed.suggestions ?? [])
+      .map((item) => String(item ?? "").trim())
+      .filter(Boolean)
+      .slice(0, 3);
+    return { ok: true, answer, suggestions };
+  } catch {
+    return { ok: false, error: "A resposta do Núcleo IA veio incompleta. Tente novamente." };
+  }
+}
