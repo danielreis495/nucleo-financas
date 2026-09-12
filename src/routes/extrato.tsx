@@ -7,6 +7,7 @@ import { PersonAvatar } from "@/components/person-avatar";
 import { SwipeRow } from "@/components/swipe-row";
 import { TransactionEdit } from "@/components/transaction-edit";
 import { categoriesFor, categoryLabel } from "@/lib/categories";
+import { exactDuplicateTransactionIds, unidentifiedTransactionIds } from "@/lib/alerts";
 import { NATURE_LABEL, natureOf } from "@/lib/movement-nature";
 import { formatBRL, formatLongDate } from "@/lib/money";
 import { monthTransactions, personById } from "@/lib/selectors";
@@ -18,6 +19,7 @@ type ExtratoSearch = {
   cat?: string;
   person?: string;
   type?: "expense" | "income";
+  issue?: "duplicate" | "unidentified";
 };
 
 type ScopeFilter = "all" | "budget" | "excluded";
@@ -27,6 +29,10 @@ export const Route = createFileRoute("/extrato")({
     cat: typeof search.cat === "string" ? search.cat : undefined,
     person: typeof search.person === "string" ? search.person : undefined,
     type: search.type === "expense" || search.type === "income" ? search.type : undefined,
+    issue:
+      search.issue === "duplicate" || search.issue === "unidentified"
+        ? search.issue
+        : undefined,
   }),
   component: ExtratoPage,
 });
@@ -41,7 +47,7 @@ function normalizeSearch(value: string) {
 }
 
 function ExtratoPage() {
-  const { cat, person, type } = Route.useSearch();
+  const { cat, person, type, issue } = Route.useSearch();
   const month = useFinanceStore((s) => s.viewMonth);
   const setMonth = useFinanceStore((s) => s.setViewMonth);
   const state = useFinanceStore();
@@ -94,9 +100,16 @@ function ExtratoPage() {
     return sorted;
   }, [monthRows]);
 
+  const issueIds = useMemo(() => {
+    if (issue === "duplicate") return exactDuplicateTransactionIds(monthRows);
+    if (issue === "unidentified") return unidentifiedTransactionIds(monthRows);
+    return null;
+  }, [issue, monthRows]);
+
   const rows = useMemo(() => {
     const needle = normalizeSearch(query);
     return monthRows
+      .filter((t) => (issueIds ? issueIds.has(t.id) : true))
       .filter((t) => (txType === "all" ? true : t.type === txType))
       .filter((t) => {
         const nature = natureOf(t);
@@ -129,7 +142,7 @@ function ExtratoPage() {
         return haystack.includes(needle);
       })
       .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
-  }, [monthRows, txType, scope, origin, personId, category, query, custom]);
+  }, [monthRows, issueIds, txType, scope, origin, personId, category, query, custom]);
 
   const groups = useMemo(() => {
     const map = new Map<string, typeof rows>();
@@ -159,6 +172,19 @@ function ExtratoPage() {
   return (
     <main className="flex flex-col pb-6">
       <MonthHeader month={month} onChange={setMonth} kicker="Extrato" />
+
+      {issue ? (
+        <div className="mx-5 mb-3 rounded-xl bg-primary-soft px-4 py-3 text-primary">
+          <p className="text-xs font-medium tracking-wide uppercase">
+            {issue === "duplicate" ? "Conferência de duplicidade" : "Lançamentos para revisar"}
+          </p>
+          <p className="mt-1 text-sm leading-relaxed">
+            {issue === "duplicate"
+              ? `Mostrando ${rows.length} lançamento${rows.length === 1 ? "" : "s"} envolvidos em grupos idênticos. Compare os pares antes de apagar: compras legítimas podem coincidir em data e valor.`
+              : `Mostrando ${rows.length} lançamento${rows.length === 1 ? "" : "s"} com favorecido ou origem incompletos.`}
+          </p>
+        </div>
+      ) : null}
 
       {catLabel ? (
         <div className="mx-5 mb-3 rounded-xl bg-elevated px-4 py-3 shadow-[var(--shadow-border)]">
