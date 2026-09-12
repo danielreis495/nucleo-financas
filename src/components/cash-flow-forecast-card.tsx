@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { CalendarRange, CircleDashed, CircleDollarSign, WalletCards } from "lucide-react";
-import { cashFlowForecast, nextLikelySalary } from "@/lib/forecast";
-import { formatBRL, formatShortDate } from "@/lib/money";
+import { cashFlowForecast, monthlyIncomeForecast, nextLikelySalary } from "@/lib/forecast";
+import { formatBRL, formatMonthTitle, formatShortDate } from "@/lib/money";
 import { useFinanceStore } from "@/lib/store";
 import { cn, todayIso } from "@/lib/utils";
 
 type Horizon = 30 | 60 | 90 | "salary";
+type ForecastMode = "outflow" | "income";
 
 function daysUntil(fromIso: string, toIso: string) {
   const from = new Date(`${fromIso}T12:00:00`).getTime();
@@ -25,13 +26,16 @@ export function CashFlowForecastCard() {
   const today = todayIso();
   const salary = nextLikelySalary(state, today);
   const [horizon, setHorizon] = useState<Horizon>(30);
+  const [mode, setMode] = useState<ForecastMode>("outflow");
   const salaryDays = salary ? daysUntil(today, salary.date) : null;
-  const horizonDays = horizon === "salary" && salaryDays ? salaryDays : typeof horizon === "number" ? horizon : 30;
+  const horizonDays =
+    horizon === "salary" && salaryDays ? salaryDays : typeof horizon === "number" ? horizon : 30;
   const forecast = cashFlowForecast(state, today, horizonDays);
+  const incomeForecast = monthlyIncomeForecast(state, today.slice(0, 7));
 
-  if (forecast.items.length === 0 && !salary) return null;
+  if (forecast.items.length === 0 && !salary && incomeForecast.expectedTotal <= 0) return null;
 
-  const title =
+  const outflowTitle =
     horizon === "salary" && salary
       ? `Até a próxima renda · ${formatShortDate(salary.date)}`
       : `Próximos ${horizonDays} dias`;
@@ -44,106 +48,176 @@ export function CashFlowForecastCard() {
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium tracking-wide text-muted uppercase">Previsão financeira</p>
-          <h2 className="font-display text-xl">{title}</h2>
+          <h2 className="font-display text-xl">
+            {mode === "outflow" ? outflowTitle : `Entradas de ${formatMonthTitle(incomeForecast.month)}`}
+          </h2>
           <p className="mt-1 text-sm text-muted">
-            Cerca de <span className="font-medium text-fg tabular-nums">{formatBRL(forecast.expectedOutflow)}</span> em saídas conhecidas ou recorrentes.
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-4 flex gap-1.5 overflow-x-auto pb-1">
-        {([30, 60, 90] as const).map((days) => (
-          <button
-            key={days}
-            type="button"
-            onClick={() => setHorizon(days)}
-            className={cn(
-              "h-9 shrink-0 rounded-full px-3 text-xs font-medium",
-              horizon === days ? "bg-primary text-primary-fg" : "bg-line text-fg",
+            {mode === "outflow" ? (
+              <>
+                Cerca de <span className="font-medium text-fg tabular-nums">{formatBRL(forecast.expectedOutflow)}</span> em saídas conhecidas ou recorrentes.
+              </>
+            ) : (
+              <>
+                Total esperado de <span className="font-medium text-fg tabular-nums">{formatBRL(incomeForecast.expectedTotal)}</span> entre valores recebidos, confirmados e estimados.
+              </>
             )}
-          >
-            {days} dias
-          </button>
-        ))}
-        {salary ? (
-          <button
-            type="button"
-            onClick={() => setHorizon("salary")}
-            className={cn(
-              "h-9 shrink-0 rounded-full px-3 text-xs font-medium",
-              horizon === "salary" ? "bg-primary text-primary-fg" : "bg-line text-fg",
-            )}
-          >
-            Até próxima renda
-          </button>
-        ) : null}
-      </div>
-
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <div className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
-          <p className="flex items-center gap-1 text-[11px] text-muted">
-            <CircleDollarSign className="size-3" /> Confirmado
           </p>
-          <p className="mt-1 font-display text-lg tabular-nums">{formatBRL(forecast.scheduledExpenses)}</p>
-          <p className="mt-1 text-[10px] leading-tight text-muted">Parcelas e lançamentos já agendados</p>
-        </div>
-        <div className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
-          <p className="flex items-center gap-1 text-[11px] text-muted">
-            <CircleDashed className="size-3" /> Estimado
-          </p>
-          <p className="mt-1 font-display text-lg tabular-nums">{formatBRL(forecast.predictedRecurring)}</p>
-          <p className="mt-1 text-[10px] leading-tight text-muted">Recorrências repetidas dentro da janela</p>
         </div>
       </div>
 
-      {salary ? (
-        <div className="mt-2 rounded-lg bg-primary-soft p-3 text-primary">
-          <div className="flex items-start gap-2">
-            <WalletCards className="mt-0.5 size-4 shrink-0" />
-            <div>
-              <p className="text-xs font-medium">
-                Próxima renda {salary.confidence === "confirmed" ? "confirmada" : "provável"} em {formatShortDate(salary.date)}
+      <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg bg-surface p-1 shadow-[var(--shadow-border)]">
+        <button
+          type="button"
+          onClick={() => setMode("outflow")}
+          className={cn(
+            "h-9 rounded-md text-xs font-medium",
+            mode === "outflow" ? "bg-primary text-primary-fg" : "text-muted",
+          )}
+        >
+          Saídas futuras
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("income")}
+          className={cn(
+            "h-9 rounded-md text-xs font-medium",
+            mode === "income" ? "bg-primary text-primary-fg" : "text-muted",
+          )}
+        >
+          Entradas do mês
+        </button>
+      </div>
+
+      {mode === "outflow" ? (
+        <>
+          <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
+            {([30, 60, 90] as const).map((days) => (
+              <button
+                key={days}
+                type="button"
+                onClick={() => setHorizon(days)}
+                className={cn(
+                  "h-9 shrink-0 rounded-full px-3 text-xs font-medium",
+                  horizon === days ? "bg-primary text-primary-fg" : "bg-line text-fg",
+                )}
+              >
+                {days} dias
+              </button>
+            ))}
+            {salary ? (
+              <button
+                type="button"
+                onClick={() => setHorizon("salary")}
+                className={cn(
+                  "h-9 shrink-0 rounded-full px-3 text-xs font-medium",
+                  horizon === "salary" ? "bg-primary text-primary-fg" : "bg-line text-fg",
+                )}
+              >
+                Até próxima renda
+              </button>
+            ) : null}
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
+              <p className="flex items-center gap-1 text-[11px] text-muted">
+                <CircleDollarSign className="size-3" /> Confirmado
               </p>
-              <p className="mt-1 text-sm tabular-nums">{formatBRL(salary.estimatedAmount)}</p>
-              <p className="mt-1 text-[10px] leading-relaxed text-primary/75">
-                {confidenceLabel(salary.confidence)}
-                {salary.observedMonths > 0 ? ` · baseada em ${salary.observedMonths} mês${salary.observedMonths === 1 ? "" : "es"} observado${salary.observedMonths === 1 ? "" : "s"}` : ""}
+              <p className="mt-1 font-display text-lg tabular-nums">{formatBRL(forecast.scheduledExpenses)}</p>
+              <p className="mt-1 text-[10px] leading-tight text-muted">Parcelas e lançamentos já agendados</p>
+            </div>
+            <div className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
+              <p className="flex items-center gap-1 text-[11px] text-muted">
+                <CircleDashed className="size-3" /> Estimado
               </p>
-              {horizon === "salary" ? (
-                <p className="mt-2 text-xs leading-relaxed">
-                  Até lá, os compromissos previstos somam {formatBRL(forecast.expectedOutflow)}. Isso não inclui seu saldo atual.
-                </p>
-              ) : null}
+              <p className="mt-1 font-display text-lg tabular-nums">{formatBRL(forecast.predictedRecurring)}</p>
+              <p className="mt-1 text-[10px] leading-tight text-muted">Recorrências repetidas dentro da janela</p>
             </div>
           </div>
-        </div>
-      ) : null}
 
-      {forecast.items.length > 0 ? (
-        <ul className="mt-3 divide-y divide-line">
-          {forecast.items.slice(0, 6).map((item) => (
-            <li key={item.key} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">{item.label}</span>
-                <span className="block text-xs text-muted">
-                  {formatShortDate(item.date)} · {item.source === "scheduled" ? "confirmado" : "estimativa recorrente"}
-                </span>
-              </span>
-              <span className="shrink-0 tabular-nums">
-                {item.type === "income" ? "+" : "−"}{formatBRL(item.amount)}
-              </span>
-            </li>
-          ))}
-        </ul>
+          {salary ? (
+            <div className="mt-2 rounded-lg bg-primary-soft p-3 text-primary">
+              <div className="flex items-start gap-2">
+                <WalletCards className="mt-0.5 size-4 shrink-0" />
+                <div>
+                  <p className="text-xs font-medium">
+                    Próxima renda {salary.confidence === "confirmed" ? "confirmada" : "provável"} em {formatShortDate(salary.date)}
+                  </p>
+                  <p className="mt-1 text-sm tabular-nums">{formatBRL(salary.estimatedAmount)}</p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-primary/75">
+                    {confidenceLabel(salary.confidence)}
+                    {salary.observedMonths > 0
+                      ? ` · baseada em ${salary.observedMonths} mês${salary.observedMonths === 1 ? "" : "es"} observado${salary.observedMonths === 1 ? "" : "s"}`
+                      : ""}
+                  </p>
+                  {horizon === "salary" ? (
+                    <p className="mt-2 text-xs leading-relaxed">
+                      Até lá, os compromissos previstos somam {formatBRL(forecast.expectedOutflow)}. Isso não inclui seu saldo atual.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {forecast.items.length > 0 ? (
+            <ul className="mt-3 divide-y divide-line">
+              {forecast.items.slice(0, 6).map((item) => (
+                <li key={item.key} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{item.label}</span>
+                    <span className="block text-xs text-muted">
+                      {formatShortDate(item.date)} · {item.source === "scheduled" ? "confirmado" : "estimativa recorrente"}
+                    </span>
+                  </span>
+                  <span className="shrink-0 tabular-nums">
+                    {item.type === "income" ? "+" : "−"}{formatBRL(item.amount)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 rounded-lg bg-surface p-3 text-sm text-muted">
+              Nenhum compromisso foi detectado dentro desta janela.
+            </p>
+          )}
+
+          <p className="mt-2 text-[11px] leading-relaxed text-muted">
+            A previsão não cria lançamentos. Em 60/90 dias, cobranças recorrentes são repetidas mês a mês; valores estimados continuam separados dos confirmados.
+          </p>
+        </>
       ) : (
-        <p className="mt-3 rounded-lg bg-surface p-3 text-sm text-muted">
-          Nenhum compromisso foi detectado dentro desta janela.
-        </p>
-      )}
+        <div className="mt-3">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
+              <p className="text-[11px] text-muted">Já recebido</p>
+              <p className="mt-1 font-display text-lg tabular-nums">{formatBRL(incomeForecast.received)}</p>
+              <p className="mt-1 text-[10px] leading-tight text-muted">Entradas reais já identificadas no mês</p>
+            </div>
+            <div className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
+              <p className="text-[11px] text-muted">Confirmado</p>
+              <p className="mt-1 font-display text-lg tabular-nums">{formatBRL(incomeForecast.confirmed)}</p>
+              <p className="mt-1 text-[10px] leading-tight text-muted">Entradas futuras já agendadas</p>
+            </div>
+            <div className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
+              <p className="text-[11px] text-muted">Ainda estimado</p>
+              <p className="mt-1 font-display text-lg tabular-nums">{formatBRL(incomeForecast.estimatedRemaining)}</p>
+              <p className="mt-1 text-[10px] leading-tight text-muted">Baseado no histórico de renda</p>
+            </div>
+            <div className="rounded-lg bg-primary-soft p-3 text-primary">
+              <p className="text-[11px]">Total esperado</p>
+              <p className="mt-1 font-display text-lg tabular-nums">{formatBRL(incomeForecast.expectedTotal)}</p>
+              <p className="mt-1 text-[10px] leading-tight text-primary/75">Recebido + confirmado + estimativa</p>
+            </div>
+          </div>
 
-      <p className="mt-2 text-[11px] leading-relaxed text-muted">
-        A previsão não cria lançamentos. Em 60/90 dias, cobranças recorrentes são repetidas mês a mês; valores estimados continuam separados dos confirmados.
-      </p>
+          <p className="mt-3 text-[11px] leading-relaxed text-muted">
+            {incomeForecast.confidence === "insufficient"
+              ? "Ainda não há histórico suficiente para estimar o restante do mês. O Núcleo mostra apenas o que já foi recebido ou agendado."
+              : `Estimativa baseada em ${incomeForecast.observedMonths} mês${incomeForecast.observedMonths === 1 ? "" : "es"} anterior${incomeForecast.observedMonths === 1 ? "" : "es"} com entradas observadas. Média histórica: ${formatBRL(incomeForecast.historicalAverage)}. Valores estimados não viram lançamentos.`}
+          </p>
+        </div>
+      )}
     </section>
   );
 }

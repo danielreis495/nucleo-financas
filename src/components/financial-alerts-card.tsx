@@ -1,4 +1,5 @@
-import { AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { AlertTriangle, ArrowRight, CheckCircle2, ShieldAlert } from "lucide-react";
 import { financialAlerts } from "@/lib/alerts";
 import { useDocumentStore } from "@/lib/document-store";
 import { useFinanceStore } from "@/lib/store";
@@ -28,7 +29,14 @@ export function FinancialAlertsCard({ month }: { month: string }) {
 
       {alerts.length ? (
         <ul className="mt-4 flex flex-col gap-2">
-          {alerts.map((alert) => (
+          {alerts.map((alert) => {
+            const issue =
+              alert.kind === "duplicate"
+                ? "duplicate"
+                : alert.id === "quality-unidentified"
+                  ? "unidentified"
+                  : null;
+            return (
             <li key={alert.id} className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
               <div className="flex items-start gap-2.5">
                 <AlertTriangle
@@ -54,10 +62,20 @@ export function FinancialAlertsCard({ month }: { month: string }) {
                     </span>
                   </div>
                   <p className="mt-1 text-xs leading-relaxed text-muted">{alert.body}</p>
+                  {issue ? (
+                    <Link
+                      to="/extrato"
+                      search={{ issue }}
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary"
+                    >
+                      Ver lançamentos <ArrowRight className="size-3" />
+                    </Link>
+                  ) : null}
                 </div>
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       ) : (
         <div className="mt-4 flex items-start gap-2 rounded-lg bg-primary-soft p-3 text-primary">

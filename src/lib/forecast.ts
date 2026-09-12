@@ -1,4 +1,4 @@
-import { countsInBudget } from "./movement-nature";
+import { countsInBudget, isExpenseRefund } from "./movement-nature";
 import { recurringExpenses } from "./recurring";
 import type { FinanceState, Transaction } from "./types";
 
@@ -28,6 +28,17 @@ export type LikelySalary = {
   estimatedAmount: number;
   confidence: "confirmed" | "high" | "medium" | "low";
   observedMonths: number;
+};
+
+export type MonthlyIncomeForecast = {
+  month: string;
+  received: number;
+  confirmed: number;
+  estimatedRemaining: number;
+  expectedTotal: number;
+  historicalAverage: number;
+  observedMonths: number;
+  confidence: "high" | "medium" | "low" | "insufficient";
 };
 
 function normalize(value: string) {
@@ -265,4 +276,82 @@ export function nextLikelySalary(
     observedMonths >= 3 ? "high" : observedMonths === 2 ? "medium" : "low";
 
   return { date, estimatedAmount, confidence, observedMonths };
+}
+
+
+function realBudgetIncome(row: Transaction) {
+  return (
+    row.type === "income" &&
+    countsInBudget(row) &&
+    row.originKind !== "credit_card" &&
+    !isExpenseRefund(row)
+  );
+}
+
+/**
+ * Previsão de entradas do mês. O que já foi recebido e o que está agendado
+ * permanecem separados da estimativa. A estimativa usa a média dos últimos
+ * três meses com renda observada e nunca cria lançamentos.
+ */
+export function monthlyIncomeForecast(
+  state: Pick<FinanceState, "transactions">,
+  targetMonth: string,
+): MonthlyIncomeForecast {
+  const current = state.transactions.filter(
+    (row) => realBudgetIncome(row) && row.date.slice(0, 7) === targetMonth,
+  );
+  const received = current
+    .filter((row) => row.status === "posted")
+    .reduce((sum, row) => sum + row.amount, 0);
+  const confirmed = current
+    .filter((row) => row.status === "scheduled")
+    .reduce((sum, row) => sum + row.amount, 0);
+
+  const history = new Map<string, number>();
+  for (const row of state.transactions) {
+    if (!realBudgetIncome(row) || row.status !== "posted") continue;
+    const month = row.date.slice(0, 7);
+    if (month >= targetMonth) continue;
+    history.set(month, (history.get(month) ?? 0) + row.amount);
+  }
+
+  const recent = [...history.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .slice(-3);
+  const observedMonths = recent.length;
+  const historicalAverage =
+    observedMonths > 0
+      ? recent.reduce((sum, [, amount]) => sum + amount, 0) / observedMonths
+      : 0;
+
+  const expectedFromHistory = Math.max(0, historicalAverage - received - confirmed);
+  const targetStart = `${targetMonth}-01`;
+  const salary = nextLikelySalary(state, targetStart);
+  const salaryInsideMonth =
+    salary && salary.date.slice(0, 7) === targetMonth ? salary.estimatedAmount : 0;
+
+  // O salário provável só eleva a estimativa quando a média histórica ainda
+  // não cobre o que deve entrar. Isso evita somá-lo duas vezes.
+  const estimatedRemaining = Math.max(expectedFromHistory, Math.max(0, salaryInsideMonth - received - confirmed));
+  const confidence: MonthlyIncomeForecast["confidence"] =
+    observedMonths >= 3
+      ? "high"
+      : observedMonths === 2
+        ? "medium"
+        : observedMonths === 1
+          ? "low"
+          : salaryInsideMonth > 0
+            ? "low"
+            : "insufficient";
+
+  return {
+    month: targetMonth,
+    received,
+    confirmed,
+    estimatedRemaining,
+    expectedTotal: received + confirmed + estimatedRemaining,
+    historicalAverage,
+    observedMonths,
+    confidence,
+  };
 }
