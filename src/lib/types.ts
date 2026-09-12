@@ -97,6 +97,7 @@ export type PlannedIncome = {
   label: string;
   amount: number;
   date: string;
+  fulfilled?: boolean;
   createdAt: string;
 };
 
