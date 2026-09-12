@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { PersonAvatar, personColorClass } from "@/components/person-avatar";
 import { AccountsCard } from "@/components/accounts-card";
+import { CardsOverviewCard } from "@/components/cards-overview-card";
 import { Button } from "@/components/ui/button";
 import { useDocumentStore } from "@/lib/document-store";
 import { formatBRL, formatBRLCompact } from "@/lib/money";
@@ -135,6 +136,8 @@ function CasaPage() {
       <p className="mt-1 text-sm text-muted">Quem entra no orçamento. Toque no nome da casa para mudar.</p>
 
       <AccountsCard />
+
+      <CardsOverviewCard />
 
       <ul className="mt-5 flex flex-col gap-2">
         {spent.map(({ person, amount }) => (
