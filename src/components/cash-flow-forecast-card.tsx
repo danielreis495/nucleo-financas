@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { CalendarRange, CircleDashed, CircleDollarSign, WalletCards } from "lucide-react";
-import { cashFlowForecast, nextLikelySalary } from "@/lib/forecast";
-import { formatBRL, formatShortDate } from "@/lib/money";
+import { cashFlowForecast, monthlyIncomeForecast, nextLikelySalary } from "@/lib/forecast";
+import { formatBRL, formatMonthTitle, formatShortDate } from "@/lib/money";
 import { useFinanceStore } from "@/lib/store";
 import { cn, todayIso } from "@/lib/utils";
 
 type Horizon = 30 | 60 | 90 | "salary";
+type ForecastMode = "outflow" | "income";
 
 function daysUntil(fromIso: string, toIso: string) {
   const from = new Date(`${fromIso}T12:00:00`).getTime();
@@ -25,11 +26,13 @@ export function CashFlowForecastCard() {
   const today = todayIso();
   const salary = nextLikelySalary(state, today);
   const [horizon, setHorizon] = useState<Horizon>(30);
+  const [mode, setMode] = useState<ForecastMode>("outflow");
   const salaryDays = salary ? daysUntil(today, salary.date) : null;
   const horizonDays = horizon === "salary" && salaryDays ? salaryDays : typeof horizon === "number" ? horizon : 30;
   const forecast = cashFlowForecast(state, today, horizonDays);
+  const incomeForecast = monthlyIncomeForecast(state, today.slice(0, 7));
 
-  if (forecast.items.length === 0 && !salary) return null;
+  if (forecast.items.length === 0 && !salary && incomeForecast.expectedTotal <= 0) return null;
 
   const title =
     horizon === "salary" && salary
@@ -51,7 +54,32 @@ export function CashFlowForecastCard() {
         </div>
       </div>
 
-      <div className="mt-4 flex gap-1.5 overflow-x-auto pb-1">
+      <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg bg-surface p-1 shadow-[var(--shadow-border)]">
+        <button
+          type="button"
+          onClick={() => setMode("outflow")}
+          className={cn(
+            "h-9 rounded-md text-xs font-medium",
+            mode === "outflow" ? "bg-primary text-primary-fg" : "text-muted",
+          )}
+        >
+          Saídas futuras
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("income")}
+          className={cn(
+            "h-9 rounded-md text-xs font-medium",
+            mode === "income" ? "bg-primary text-primary-fg" : "text-muted",
+          )}
+        >
+          Entradas do mês
+        </button>
+      </div>
+
+      {mode === "outflow" ? (
+      <>
+      <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
         {([30, 60, 90] as const).map((days) => (
           <button
             key={days}
@@ -77,6 +105,8 @@ export function CashFlowForecastCard() {
             Até próxima renda
           </button>
         ) : null}
+      </div>
+
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
@@ -144,6 +174,42 @@ export function CashFlowForecastCard() {
       <p className="mt-2 text-[11px] leading-relaxed text-muted">
         A previsão não cria lançamentos. Em 60/90 dias, cobranças recorrentes são repetidas mês a mês; valores estimados continuam separados dos confirmados.
       </p>
+      </>
+      ) : (
+        <div className="mt-3">
+          <p className="text-sm text-muted">
+            Previsão de entradas para <span className="font-medium text-fg">{formatMonthTitle(incomeForecast.month)}</span>.
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
+              <p className="text-[11px] text-muted">Já recebido</p>
+              <p className="mt-1 font-display text-lg tabular-nums">{formatBRL(incomeForecast.received)}</p>
+              <p className="mt-1 text-[10px] leading-tight text-muted">Entradas reais já identificadas no mês</p>
+            </div>
+            <div className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
+              <p className="text-[11px] text-muted">Confirmado</p>
+              <p className="mt-1 font-display text-lg tabular-nums">{formatBRL(incomeForecast.confirmed)}</p>
+              <p className="mt-1 text-[10px] leading-tight text-muted">Entradas agendadas no app</p>
+            </div>
+            <div className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
+              <p className="text-[11px] text-muted">Ainda estimado</p>
+              <p className="mt-1 font-display text-lg tabular-nums">{formatBRL(incomeForecast.estimatedRemaining)}</p>
+              <p className="mt-1 text-[10px] leading-tight text-muted">Baseado no histórico de renda</p>
+            </div>
+            <div className="rounded-lg bg-primary-soft p-3 text-primary">
+              <p className="text-[11px]">Total esperado</p>
+              <p className="mt-1 font-display text-lg tabular-nums">{formatBRL(incomeForecast.expectedTotal)}</p>
+              <p className="mt-1 text-[10px] leading-tight text-primary/75">Recebido + confirmado + estimativa</p>
+            </div>
+          </div>
+
+          <p className="mt-3 text-[11px] leading-relaxed text-muted">
+            {incomeForecast.confidence === "insufficient"
+              ? "Ainda não há histórico suficiente para estimar o restante do mês. O Núcleo mostra apenas o que já foi recebido ou agendado."
+              : `Estimativa baseada em ${incomeForecast.observedMonths} mês${incomeForecast.observedMonths === 1 ? "" : "es"} anterior${incomeForecast.observedMonths === 1 ? "" : "es"} com entradas observadas. Média histórica: ${formatBRL(incomeForecast.historicalAverage)}. Valores estimados não viram lançamentos.`}
+          </p>
+        </div>
+      )}
     </section>
   );
 }
