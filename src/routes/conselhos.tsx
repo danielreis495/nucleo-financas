@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Loader2, ShieldCheck, Sparkles, Target, WalletCards } from "lucide-react";
 import { AdvisorChat } from "@/components/advisor-chat";
+import { FinancialAlertsCard } from "@/components/financial-alerts-card";
 import { Button } from "@/components/ui/button";
 import { adviseSpending } from "@/lib/ai";
 import { cashPositionForMonth } from "@/lib/cash-position";
@@ -228,6 +229,8 @@ function ConselhosPage() {
       </p>
 
       <AdvisorChat month={month} />
+
+      <FinancialAlertsCard month={month} />
 
       <section className="mt-5 rounded-xl bg-primary px-5 py-5 text-primary-fg">
         <div className="flex items-start justify-between gap-4">

@@ -7,6 +7,7 @@ import { MonthChangeCard } from "@/components/month-change-card";
 import { MonthHeader } from "@/components/month-header";
 import { PersonAvatar } from "@/components/person-avatar";
 import { TransactionEdit } from "@/components/transaction-edit";
+import { TodayBriefCard } from "@/components/today-brief-card";
 import { categoryLabel } from "@/lib/categories";
 import { formatBRL, formatBRLCompact, formatShortDate } from "@/lib/money";
 import { recurringExpenses, recurringMonthlyTotal } from "@/lib/recurring";
@@ -57,6 +58,8 @@ function Home() {
           Casa de exemplo da família Almeida. Capture uma nota ou limpe os dados em Casa.
         </p>
       ) : null}
+
+      <TodayBriefCard month={month} />
 
       <section className="mx-5 rounded-xl bg-primary px-5 py-5 text-primary-fg">
         <p className="text-xs font-medium tracking-wide text-primary-fg/70 uppercase">Resultado do mês</p>
