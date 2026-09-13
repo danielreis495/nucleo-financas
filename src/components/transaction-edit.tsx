@@ -9,7 +9,7 @@ import { natureOf } from "@/lib/movement-nature";
 import { formatBRL, parseLooseAmount } from "@/lib/money";
 import { useFinanceStore } from "@/lib/store";
 import type { Transaction } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, monthKey } from "@/lib/utils";
 
 export function TransactionEdit({
   tx,
@@ -21,6 +21,7 @@ export function TransactionEdit({
   const update = useFinanceStore((s) => s.updateTransaction);
   const people = useFinanceStore((s) => s.people);
   const accounts = useFinanceStore((s) => s.accounts ?? []);
+  const transactions = useFinanceStore((s) => s.transactions);
   const live = useFinanceStore((s) => s.transactions.find((t) => t.id === tx.id)) ?? tx;
 
   const [merchant, setMerchant] = useState(live.merchant);
@@ -34,6 +35,27 @@ export function TransactionEdit({
     setDate(live.date);
     setAmountText(formatEditAmount(live.amount));
   }, [live.id]);
+
+  function assignCreditCard(institution: "Nubank" | "Itaú") {
+    const related = live.installmentId
+      ? transactions.filter((row) => row.installmentId === live.installmentId)
+      : [live];
+
+    for (const row of related) {
+      const rowDate = row.id === live.id ? date || row.date : row.date;
+      update(row.id, {
+        accountId: null,
+        originKind: "credit_card",
+        originInstitution: institution,
+        originLabel: `Cartão ${institution}`,
+        paymentMethod: "Cartão de crédito",
+        competenceMonth:
+          row.originKind === "credit_card" && row.competenceMonth
+            ? row.competenceMonth
+            : monthKey(rowDate),
+      });
+    }
+  }
 
   function saveCore() {
     const amount = parseLooseAmount(amountText);
@@ -159,14 +181,26 @@ export function TransactionEdit({
             </>
           ) : null}
 
-          <p className="mt-4 mb-2 text-xs font-medium text-muted">Conta</p>
+          <p className="mt-4 mb-2 text-xs font-medium text-muted">Conta / cartão</p>
           <div className="mb-1 flex flex-wrap gap-1.5">
             <button
               type="button"
-              onClick={() => update(live.id, { accountId: null })}
+              onClick={() => {
+                const patch: Partial<Transaction> = { accountId: null };
+                if (live.originKind === "credit_card") {
+                  patch.originKind = live.source === "manual" ? "manual" : "unknown";
+                  patch.originInstitution = undefined;
+                  patch.originLabel = live.source === "manual" ? "Lançamento manual" : undefined;
+                  patch.paymentMethod = undefined;
+                  patch.competenceMonth = undefined;
+                }
+                update(live.id, patch);
+              }}
               className={cn(
                 "h-9 rounded-full px-3 text-xs font-medium",
-                !live.accountId ? "bg-primary text-primary-fg" : "bg-line text-fg",
+                !live.accountId && live.originKind !== "credit_card"
+                  ? "bg-primary text-primary-fg"
+                  : "bg-line text-fg",
               )}
             >
               Sem conta
@@ -175,21 +209,46 @@ export function TransactionEdit({
               <button
                 key={account.id}
                 type="button"
-                onClick={() => update(live.id, { accountId: account.id })}
+                onClick={() =>
+                  update(live.id, {
+                    accountId: account.id,
+                    originKind: "bank_account",
+                    originInstitution: account.institution || account.name,
+                    originLabel: `Conta ${account.institution || account.name}`,
+                    competenceMonth: undefined,
+                    paymentMethod: live.originKind === "credit_card" ? undefined : live.paymentMethod,
+                  })
+                }
                 className={cn(
                   "h-9 max-w-full truncate rounded-full px-3 text-xs font-medium",
-                  live.accountId === account.id ? "bg-primary text-primary-fg" : "bg-line text-fg",
+                  live.accountId === account.id && live.originKind !== "credit_card"
+                    ? "bg-primary text-primary-fg"
+                    : "bg-line text-fg",
                 )}
               >
                 {account.name}
               </button>
             ))}
+            {(["Nubank", "Itaú"] as const).map((institution) => (
+              <button
+                key={`card-${institution}`}
+                type="button"
+                onClick={() => assignCreditCard(institution)}
+                className={cn(
+                  "h-9 max-w-full truncate rounded-full px-3 text-xs font-medium",
+                  live.originKind === "credit_card" && live.originInstitution === institution
+                    ? "bg-primary text-primary-fg"
+                    : "bg-line text-fg",
+                )}
+              >
+                Cartão {institution}
+              </button>
+            ))}
           </div>
-          {accounts.length === 0 ? (
-            <p className="mb-4 text-xs text-muted">Cadastre uma conta em Casa para vinculá-la aos lançamentos.</p>
-          ) : (
-            <p className="mb-4 text-xs text-muted">Lançamentos antigos continuam sem conta até você escolher uma.</p>
-          )}
+          <p className="mb-4 text-xs leading-relaxed text-muted">
+            Conta bancária movimenta o saldo da conta. Cartão entra na fatura e não reduz o saldo bancário na hora.
+            {live.installmentId ? " Ao escolher um cartão, as parcelas relacionadas também são vinculadas a ele." : ""}
+          </p>
 
           <p className="mt-4 mb-2 text-xs font-medium text-muted">Quem</p>
           <div className="mb-4 flex flex-wrap gap-1.5">
