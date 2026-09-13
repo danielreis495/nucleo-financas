@@ -5,6 +5,7 @@ import { CashFlowForecastCard } from "@/components/cash-flow-forecast-card";
 import { CashPositionCard } from "@/components/cash-position-card";
 import { MonthChangeCard } from "@/components/month-change-card";
 import { MonthHeader } from "@/components/month-header";
+import { MonthlySimulationCard } from "@/components/monthly-simulation-card";
 import { PersonAvatar } from "@/components/person-avatar";
 import { TransactionEdit } from "@/components/transaction-edit";
 import { TodayBriefCard } from "@/components/today-brief-card";
@@ -90,6 +91,8 @@ function Home() {
           </Link>
         </div>
       </section>
+
+      <MonthlySimulationCard month={month} />
 
       <CashPositionCard month={month} />
       <MonthChangeCard month={month} />
