@@ -365,6 +365,30 @@ function looksLikeBankStatement(text: string) {
   return accountSignals >= 1 && accountSignals >= cardSignals;
 }
 
+function statementPageCount(text: string) {
+  return (text.match(/--- página \d+ ---/g) ?? []).length;
+}
+
+function statementCandidateLineCount(text: string) {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        /^\d{2}\/\d{2}\/\d{4}\b/.test(line) &&
+        !/\bSALDO DO DIA\b/i.test(line),
+    ).length;
+}
+
+function compactStatementText(text: string) {
+  // "SALDO DO DIA" é totalizador, não lançamento. Removê-lo dos blocos reduz
+  // bastante a resposta necessária sem perder movimentos financeiros.
+  return text
+    .split("\n")
+    .filter((line) => !/^\s*\d{2}\/\d{2}\/\d{4}\s+SALDO DO DIA\b/i.test(line))
+    .join("\n");
+}
+
 function splitByLines(text: string, maxChars: number) {
   const chunks: string[] = [];
   let current = "";
@@ -437,31 +461,69 @@ export async function extractWithGemini(data: ExtractPayload): Promise<ExtractRe
   const system = buildExtractionSystem(data);
   const sourceText = data.text ?? "";
   const bankStatement = Boolean(sourceText && looksLikeBankStatement(sourceText));
-  const shouldChunk = bankStatement && sourceText.length > 12000;
+  const pageCount = bankStatement ? statementPageCount(sourceText) : 0;
+  const candidateLines = bankStatement ? statementCandidateLineCount(sourceText) : 0;
+  const statementText = bankStatement ? compactStatementText(sourceText) : sourceText;
+
+  // Extratos longos precisam ser divididos antes da primeira chamada.
+  // Tamanho em caracteres sozinho não é suficiente: um extrato Itaú de várias
+  // páginas pode ter texto compacto, mas exigir centenas de objetos no JSON.
+  const shouldChunk =
+    bankStatement &&
+    (statementText.length > 6500 || pageCount >= 3 || candidateLines > 45);
 
   if (shouldChunk) {
-    const chunks = splitStatementText(sourceText);
+    const chunks = splitStatementText(statementText, 3800);
     const allItems: ExtractedItem[] = [];
     for (const chunk of chunks) {
       const result = await extractOne(apiKey, system, `Documento:\n${chunk}`, data, undefined, 6000);
       if (!result.ok) return result;
       allItems.push(...result.items);
     }
+
+    // Se um extrato claramente grande voltar com poucos itens, não aceitamos
+    // silenciosamente uma importação parcial.
+    const minimumExpected =
+      candidateLines >= 20 ? Math.max(8, Math.floor(candidateLines * 0.55)) : 1;
+    if (allItems.length < minimumExpected) {
+      const retryChunks = splitStatementText(statementText, 2200);
+      if (retryChunks.length > chunks.length) {
+        const retryItems: ExtractedItem[] = [];
+        for (const chunk of retryChunks) {
+          const result = await extractOne(
+            apiKey,
+            system,
+            `Documento:\n${chunk}`,
+            data,
+            undefined,
+            4500,
+          );
+          if (!result.ok) return result;
+          retryItems.push(...result.items);
+        }
+        if (retryItems.length >= allItems.length) {
+          return retryItems.length
+            ? { ok: true, items: retryItems.slice(0, 240) }
+            : { ok: false, error: "Não achei lançamentos nesse extrato." };
+        }
+      }
+    }
+
     return allItems.length
       ? { ok: true, items: allItems.slice(0, 240) }
       : { ok: false, error: "Não achei lançamentos nesse extrato." };
   }
 
-  const text = sourceText
-    ? `Documento:\n${sourceText.slice(0, 36000)}`
+  const text = statementText
+    ? `Documento:\n${statementText.slice(0, 36000)}`
     : "Extraia os lançamentos destas imagens. Se for fatura, cada compra é um item.";
   const single = await extractOne(apiKey, system, text, data, data.images, 8192);
   if (single.ok) return single;
 
   // Extratos podem gerar JSON grande mesmo quando o texto total não ultrapassa
   // o limiar acima. Se a primeira resposta vier truncada, refazemos por blocos.
-  if (bankStatement && sourceText.length > 4000) {
-    const chunks = splitStatementText(sourceText, 7000);
+  if (bankStatement && statementText.length > 4000) {
+    const chunks = splitStatementText(statementText, 4200);
     if (chunks.length > 1) {
       const allItems: ExtractedItem[] = [];
       for (const chunk of chunks) {
