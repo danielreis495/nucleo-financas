@@ -6,6 +6,7 @@ import { CaptureReview } from "@/components/capture-review";
 import { CategoryPicker } from "@/components/category-picker";
 import { PersonAvatar } from "@/components/person-avatar";
 import { Button } from "@/components/ui/button";
+import { parseTabularBankStatement } from "@/lib/bank-statement-parser";
 import { extractDocument } from "@/lib/ai";
 import {
   applyKnownHolderTransfers,
@@ -137,17 +138,38 @@ function CapturaPage() {
 
       setStatus(`Detectado: ${origin.originLabel}. Extraindo lançamentos…`);
       const casa = people.find((p) => p.role === "other") ?? people[0];
+      const defaultPersonId = casa?.id ?? people[0]?.id ?? "";
+
+      // Extratos bancários tabelados não dependem da IA para descobrir data,
+      // descrição e valor. Primeiro tentamos o parser local; a IA continua como
+      // fallback para documentos menos estruturados.
+      const tabularItems =
+        origin.originKind === "bank_account"
+          ? parseTabularBankStatement(
+              prepared.text,
+              people.map((p) => ({ id: p.id, name: p.name })),
+              defaultPersonId,
+            )
+          : [];
+
+      if (tabularItems.length >= 5) {
+        setStatus(`Extrato estruturado: ${tabularItems.length} movimentações encontradas.`);
+      }
+
       const payload = {
         text: prepared.text,
         images: prepared.images,
         people: people.map((p) => ({ id: p.id, name: p.name, role: p.role })),
-        defaultPersonId: casa?.id ?? people[0]?.id ?? "",
+        defaultPersonId,
         today: todayIso(),
         apiKey: geminiKey || undefined,
       };
-      const result = geminiKey
-        ? await (await import("@/lib/gemini")).extractWithGemini(payload)
-        : await extractDocument({ data: payload });
+      const result =
+        tabularItems.length >= 5
+          ? ({ ok: true as const, items: tabularItems })
+          : geminiKey
+            ? await (await import("@/lib/gemini")).extractWithGemini(payload)
+            : await extractDocument({ data: payload });
       if (!result.ok) {
         toast.error(result.error);
         return;
