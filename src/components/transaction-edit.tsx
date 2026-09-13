@@ -21,6 +21,7 @@ export function TransactionEdit({
   const update = useFinanceStore((s) => s.updateTransaction);
   const people = useFinanceStore((s) => s.people);
   const accounts = useFinanceStore((s) => s.accounts ?? []);
+  const transactions = useFinanceStore((s) => s.transactions);
   const live = useFinanceStore((s) => s.transactions.find((t) => t.id === tx.id)) ?? tx;
 
   const [merchant, setMerchant] = useState(live.merchant);
@@ -34,6 +35,27 @@ export function TransactionEdit({
     setDate(live.date);
     setAmountText(formatEditAmount(live.amount));
   }, [live.id]);
+
+  function assignCreditCard(institution: "Nubank" | "Itaú") {
+    const related = live.installmentId
+      ? transactions.filter((row) => row.installmentId === live.installmentId)
+      : [live];
+
+    for (const row of related) {
+      const rowDate = row.id === live.id ? date || row.date : row.date;
+      update(row.id, {
+        accountId: null,
+        originKind: "credit_card",
+        originInstitution: institution,
+        originLabel: `Cartão ${institution}`,
+        paymentMethod: "Cartão de crédito",
+        competenceMonth:
+          row.originKind === "credit_card" && row.competenceMonth
+            ? row.competenceMonth
+            : monthKey(rowDate),
+      });
+    }
+  }
 
   function saveCore() {
     const amount = parseLooseAmount(amountText);
@@ -211,19 +233,7 @@ export function TransactionEdit({
               <button
                 key={`card-${institution}`}
                 type="button"
-                onClick={() =>
-                  update(live.id, {
-                    accountId: null,
-                    originKind: "credit_card",
-                    originInstitution: institution,
-                    originLabel: `Cartão ${institution}`,
-                    paymentMethod: "Cartão de crédito",
-                    competenceMonth:
-                      live.originKind === "credit_card" && live.competenceMonth
-                        ? live.competenceMonth
-                        : monthKey(date || live.date),
-                  })
-                }
+                onClick={() => assignCreditCard(institution)}
                 className={cn(
                   "h-9 max-w-full truncate rounded-full px-3 text-xs font-medium",
                   live.originKind === "credit_card" && live.originInstitution === institution
@@ -237,6 +247,7 @@ export function TransactionEdit({
           </div>
           <p className="mb-4 text-xs leading-relaxed text-muted">
             Conta bancária movimenta o saldo da conta. Cartão entra na fatura e não reduz o saldo bancário na hora.
+            {live.installmentId ? " Ao escolher um cartão, as parcelas relacionadas também são vinculadas a ele." : ""}
           </p>
 
           <p className="mt-4 mb-2 text-xs font-medium text-muted">Quem</p>
