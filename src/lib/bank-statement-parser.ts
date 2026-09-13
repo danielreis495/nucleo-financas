@@ -46,7 +46,7 @@ function natureFor(description: string, people: { name: string }[]): TxNature {
   ) {
     return "card_payment";
   }
-  if (/\bcredito consignado\b|\bemprestimo\b|\bcredito contratado\b/.test(text)) {
+  if (/\b(emprestimo recebido|credito contratado|credito liberado)\b/.test(text)) {
     return "financing";
   }
   if (/\bsaque banco24h\b|\bsaque\b/.test(text)) {
