@@ -104,39 +104,97 @@ function merchantFromDescription(description: string) {
   return merchant || original || "Lançamento";
 }
 
-export function isTabularBankStatement(text: string | undefined) {
-  if (!text) return false;
-  const normalized = normalize(text.slice(0, 18000));
-  const datedLines = text
-    .split("\n")
-    .filter((line) => /^\s*\d{2}\/\d{2}\/\d{4}\b/.test(line)).length;
-  return (
-    datedLines >= 5 &&
-    /\bextrato conta\b|\bextrato bancario\b/.test(normalized) &&
-    /\bsaldo do dia\b|\bsaldo em conta\b/.test(normalized)
-  );
+export type StructuredBankStatementAnalysis = {
+  items: ExtractedItem[];
+  confidence: number;
+  candidateLines: number;
+  matchedLines: number;
+  institution?: string;
+};
+
+function institutionFromText(text: string | undefined) {
+  const normalized = normalize((text ?? "").slice(0, 8000));
+  if (/\bnubank\b|\bnu pagamentos\b/.test(normalized)) return "Nubank";
+  if (/\bitau\b/.test(normalized)) return "Itaú";
+  if (/\bbradesco\b/.test(normalized)) return "Bradesco";
+  if (/\bsantander\b/.test(normalized)) return "Santander";
+  if (/\bbanco do brasil\b/.test(normalized)) return "Banco do Brasil";
+  if (/\bcaixa economica\b/.test(normalized)) return "Caixa";
+  if (/\bbanco inter\b|\binter bank\b/.test(normalized)) return "Inter";
+  if (/\bc6 bank\b/.test(normalized)) return "C6";
+  return undefined;
 }
 
-export function parseTabularBankStatement(
+function statementSignals(text: string | undefined) {
+  const normalized = normalize((text ?? "").slice(0, 18000));
+  return [
+    /\bextrato\b/.test(normalized),
+    /\blancamentos\b|\bmovimentacoes\b/.test(normalized),
+    /\bsaldo em conta\b|\bsaldo da conta\b|\bsaldo do dia\b/.test(normalized),
+    /\bconta corrente\b|\bconta digital\b/.test(normalized),
+  ].filter(Boolean).length;
+}
+
+export function isTabularBankStatement(text: string | undefined) {
+  if (!text) return false;
+  const datedLines = text
+    .split("\n")
+    .filter((line) => /^\s*\d{2}\/\d{2}(?:\/\d{4})?\b/.test(line)).length;
+  return datedLines >= 5 && statementSignals(text) >= 2;
+}
+
+function yearHintFromText(text: string | undefined) {
+  const matches = (text ?? "").match(/\b20\d{2}\b/g) ?? [];
+  const years = matches.map(Number).filter((year) => year >= 2020 && year <= 2100);
+  return years.length ? years[years.length - 1] : new Date().getFullYear();
+}
+
+function dateFromBankLine(raw: string, yearHint: number) {
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) return isoFromBr(raw);
+  const match = raw.match(/^(\d{2})\/(\d{2})$/);
+  return match ? `${yearHint}-${match[2]}-${match[1]}` : null;
+}
+
+function signedAmount(raw: string, dc: string | undefined) {
+  const parsed = money(raw.replace(/^\+/, ""));
+  if (parsed === null) return null;
+  if (raw.trim().startsWith("-")) return -Math.abs(parsed);
+  if (dc?.toUpperCase() === "D") return -Math.abs(parsed);
+  if (dc?.toUpperCase() === "C") return Math.abs(parsed);
+  return parsed;
+}
+
+export function analyzeTabularBankStatement(
   text: string | undefined,
   people: { id: string; name: string }[],
   defaultPersonId: string,
-): ExtractedItem[] {
-  if (!isTabularBankStatement(text)) return [];
+): StructuredBankStatementAnalysis {
+  if (!text) {
+    return { items: [], confidence: 0, candidateLines: 0, matchedLines: 0 };
+  }
+
+  const yearHint = yearHintFromText(text);
+  const institution = institutionFromText(text);
+  const candidates = text
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => /^\d{2}\/\d{2}(?:\/\d{4})?\b/.test(line));
 
   const rows: ExtractedItem[] = [];
-  for (const rawLine of (text ?? "").split("\n")) {
-    const line = rawLine.replace(/\s+/g, " ").trim();
+  let matchedLines = 0;
+
+  for (const line of candidates) {
     const match = line.match(
-      /^(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+(-?[\d.]+,\d{2})(?:\s+(-?[\d.]+,\d{2}))?$/,
+      /^(\d{2}\/\d{2}(?:\/\d{4})?)\s+(.+?)\s+(?:R\$\s*)?([+-]?[\d.]+,\d{2})\s*([CD])?(?:\s+(?:R\$\s*)?[+-]?[\d.]+,\d{2}\s*[CD]?)?$/i,
     );
     if (!match) continue;
+    matchedLines += 1;
 
-    const [, brDate, rawDescription, rawValue] = match;
-    if (/^SALDO DO DIA$/i.test(rawDescription.trim())) continue;
+    const [, rawDate, rawDescription, rawValue, dc] = match;
+    if (/^SALDO(?: DO DIA| FINAL| EM CONTA)?$/i.test(rawDescription.trim())) continue;
 
-    const signed = money(rawValue);
-    const date = isoFromBr(brDate);
+    const signed = signedAmount(rawValue, dc);
+    const date = dateFromBankLine(rawDate, yearHint);
     if (signed === null || signed === 0 || !date) continue;
 
     const description = rawDescription.trim();
@@ -161,5 +219,26 @@ export function parseTabularBankStatement(
     });
   }
 
-  return rows;
+  const signals = statementSignals(text);
+  const coverage = candidates.length ? matchedLines / candidates.length : 0;
+  const volumeScore = rows.length >= 10 ? 1 : rows.length >= 5 ? 0.75 : rows.length >= 3 ? 0.45 : 0;
+  const signalScore = Math.min(1, signals / 3);
+  const confidence = Math.min(1, coverage * 0.55 + signalScore * 0.25 + volumeScore * 0.2);
+
+  return {
+    items: rows,
+    confidence,
+    candidateLines: candidates.length,
+    matchedLines,
+    institution,
+  };
+}
+
+export function parseTabularBankStatement(
+  text: string | undefined,
+  people: { id: string; name: string }[],
+  defaultPersonId: string,
+): ExtractedItem[] {
+  const analysis = analyzeTabularBankStatement(text, people, defaultPersonId);
+  return analysis.confidence >= 0.72 ? analysis.items : [];
 }
