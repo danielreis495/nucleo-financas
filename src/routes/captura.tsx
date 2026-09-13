@@ -285,7 +285,28 @@ function CapturaPage() {
         items={items}
         accountId={accountId}
         duplicateSummary={duplicateSummary}
+        documentSummary={documentSummary}
+        importOrigin={importOrigin}
         onAccountChange={setAccountId}
+        onCardOriginChange={(institution) => {
+          setAccountId(null);
+          setImportOrigin((current) => ({
+            originLabel: `Cartão ${institution}`,
+            originInstitution: institution,
+            originKind: "credit_card",
+            sourceFileName: current?.sourceFileName,
+            competenceMonth: documentSummary?.referenceMonth ?? current?.competenceMonth,
+          }));
+          setDocumentSummary((current) =>
+            current
+              ? {
+                  ...current,
+                  kind: "credit_card_bill",
+                  institution,
+                }
+              : current,
+          );
+        }}
         onChange={setItems}
         onCancel={() => {
           setItems(null);
