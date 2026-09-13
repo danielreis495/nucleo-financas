@@ -6,7 +6,8 @@ import { CaptureReview } from "@/components/capture-review";
 import { CategoryPicker } from "@/components/category-picker";
 import { PersonAvatar } from "@/components/person-avatar";
 import { Button } from "@/components/ui/button";
-import { parseTabularBankStatement } from "@/lib/bank-statement-parser";
+import { analyzeTabularBankStatement } from "@/lib/bank-statement-parser";
+import { analyzeStructuredSheetText } from "@/lib/sheet-parser";
 import { extractDocument } from "@/lib/ai";
 import {
   applyKnownHolderTransfers,
@@ -117,7 +118,45 @@ function CapturaPage() {
       setDocumentFingerprint(prepared.fingerprint ?? null);
 
       const summary = summarizeFinancialDocument(prepared.text, todayIso(), file.name, prepared.source);
-      const origin = originFromDocument(summary, file.name, prepared.source, prepared.text);
+      let origin = originFromDocument(summary, file.name, prepared.source, prepared.text);
+      const casa = people.find((p) => p.role === "other") ?? people[0];
+      const defaultPersonId = casa?.id ?? people[0]?.id ?? "";
+
+      // Motor local-first: documentos estruturados são lidos no aparelho em
+      // milissegundos. Gemini fica reservado para documentos ambíguos, scans
+      // ou layouts que não atinjam confiança suficiente.
+      const bankAnalysis =
+        prepared.source === "pdf"
+          ? analyzeTabularBankStatement(
+              prepared.text,
+              people.map((p) => ({ id: p.id, name: p.name })),
+              defaultPersonId,
+            )
+          : null;
+      const sheetAnalysis =
+        prepared.source === "sheet"
+          ? analyzeStructuredSheetText(prepared.text, defaultPersonId)
+          : null;
+
+      const bankFastPath =
+        Boolean(bankAnalysis) &&
+        (bankAnalysis?.items.length ?? 0) >= 5 &&
+        (bankAnalysis?.confidence ?? 0) >= 0.78;
+      const sheetFastPath =
+        Boolean(sheetAnalysis) &&
+        (sheetAnalysis?.items.length ?? 0) >= 3 &&
+        (sheetAnalysis?.confidence ?? 0) >= 0.82;
+
+      if (bankFastPath && origin.originKind === "unknown") {
+        const institution = bankAnalysis?.institution ?? origin.originInstitution;
+        origin = {
+          originLabel: institution ? `Conta ${institution}` : "Extrato bancário",
+          originInstitution: institution,
+          originKind: "bank_account",
+          sourceFileName: file.name,
+        };
+      }
+
       setDocumentSummary(summary);
       setImportOrigin(origin);
 
@@ -136,24 +175,17 @@ function CapturaPage() {
         return;
       }
 
-      setStatus(`Detectado: ${origin.originLabel}. Extraindo lançamentos…`);
-      const casa = people.find((p) => p.role === "other") ?? people[0];
-      const defaultPersonId = casa?.id ?? people[0]?.id ?? "";
-
-      // Extratos bancários tabelados não dependem da IA para descobrir data,
-      // descrição e valor. Primeiro tentamos o parser local; a IA continua como
-      // fallback para documentos menos estruturados.
-      const tabularItems =
-        origin.originKind === "bank_account"
-          ? parseTabularBankStatement(
-              prepared.text,
-              people.map((p) => ({ id: p.id, name: p.name })),
-              defaultPersonId,
-            )
+      const localItems = bankFastPath
+        ? bankAnalysis?.items ?? []
+        : sheetFastPath
+          ? sheetAnalysis?.items ?? []
           : [];
 
-      if (tabularItems.length >= 5) {
-        setStatus(`Extrato estruturado: ${tabularItems.length} movimentações encontradas.`);
+      if (localItems.length > 0) {
+        const sourceLabel = bankFastPath ? "extrato estruturado" : "planilha estruturada";
+        setStatus(`Leitura rápida local: ${localItems.length} lançamentos no ${sourceLabel}.`);
+      } else {
+        setStatus(`Detectado: ${origin.originLabel}. Interpretando documento…`);
       }
 
       const payload = {
@@ -165,8 +197,8 @@ function CapturaPage() {
         apiKey: geminiKey || undefined,
       };
       const result =
-        tabularItems.length >= 5
-          ? ({ ok: true as const, items: tabularItems })
+        localItems.length > 0
+          ? ({ ok: true as const, items: localItems })
           : geminiKey
             ? await (await import("@/lib/gemini")).extractWithGemini(payload)
             : await extractDocument({ data: payload });
