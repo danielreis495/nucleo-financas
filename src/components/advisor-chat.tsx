@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Send, Sparkles, Trash2 } from "lucide-react";
+import { Bot, CalendarDays, Check, Landmark, Send, Sparkles, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cashPositionForMonth } from "@/lib/cash-position";
 import { categoryLabel } from "@/lib/categories";
+import type { FinancialChatAction } from "@/lib/gemini";
+import { formatBRL } from "@/lib/money";
 import { useDocumentStore } from "@/lib/document-store";
 import { cashFlowForecast } from "@/lib/forecast";
 import { recurringExpenses } from "@/lib/recurring";
@@ -51,6 +53,7 @@ export function AdvisorChat({ month }: { month: string }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [pendingAction, setPendingAction] = useState<FinancialChatAction | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   const context = useMemo(() => {
@@ -95,6 +98,11 @@ export function AdvisorChat({ month }: { month: string }) {
     return {
       selectedMonth: month,
       household: state.householdName,
+      today: todayIso(),
+      householdMembers: state.people.map((person) => ({ id: person.id, name: person.name })),
+      availableExpenseCategories: state.customCategories.length
+        ? ["mercado", "alimentacao", "transporte", "moradia", "contas", "saude", "educacao", "lazer", "assinaturas", "vestuario", "pets", "viagem", "outros", ...state.customCategories.filter((item) => item.group === "gasto").map((item) => item.id)]
+        : ["mercado", "alimentacao", "transporte", "moradia", "contas", "saude", "educacao", "lazer", "assinaturas", "vestuario", "pets", "viagem", "outros"],
       budget: {
         income: snapshot.income,
         postedExpense: snapshot.postedExpense,
@@ -196,11 +204,11 @@ export function AdvisorChat({ month }: { month: string }) {
       });
       if (!result.ok) {
         toast.error(result.error);
-        setMessages((current) => [
+        setMessages((current): ChatMessage[] => [
           ...current,
           {
             id: uid(),
-            role: "assistant",
+            role: "assistant" as const,
             text: result.error,
             createdAt: new Date().toISOString(),
           },
@@ -208,11 +216,12 @@ export function AdvisorChat({ month }: { month: string }) {
         return;
       }
       setSuggestions(result.suggestions);
-      setMessages((current) => [
+      setPendingAction(result.action);
+      setMessages((current): ChatMessage[] => [
         ...current,
         {
           id: uid(),
-          role: "assistant",
+          role: "assistant" as const,
           text: result.answer,
           createdAt: new Date().toISOString(),
         },
@@ -247,6 +256,7 @@ export function AdvisorChat({ month }: { month: string }) {
             onClick={() => {
               setMessages([]);
               setSuggestions([]);
+              setPendingAction(null);
               localStorage.removeItem(CHAT_KEY);
             }}
           >
@@ -310,6 +320,59 @@ export function AdvisorChat({ month }: { month: string }) {
               {suggestion}
             </button>
           ))}
+        </div>
+      ) : null}
+
+      {pendingAction && !busy ? (
+        <div className="mt-3 rounded-xl border border-primary/25 bg-primary-soft p-4 text-sm">
+          <div className="flex items-start gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-fg">
+              {pendingAction.kind === "loan" ? <Landmark className="size-4" /> : <CalendarDays className="size-4" />}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium tracking-wide text-primary uppercase">Confirmar inclusão</p>
+              <h3 className="mt-0.5 font-medium">{pendingAction.title}</h3>
+              <p className="mt-2 leading-relaxed text-muted">
+                {pendingAction.totalCount}x de {formatBRL(pendingAction.installmentAmount)} · total de {formatBRL(pendingAction.installmentAmount * pendingAction.totalCount)}
+              </p>
+              <p className="mt-1 text-xs text-muted">
+                Início em {new Date(`${pendingAction.startDate}T12:00:00`).toLocaleDateString("pt-BR")}
+                {pendingAction.institution ? ` · ${pendingAction.institution}` : ` · ${pendingAction.merchant}`}
+              </p>
+              {pendingAction.explanation ? <p className="mt-2 text-xs leading-relaxed text-primary">{pendingAction.explanation}</p> : null}
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <Button type="button" variant="secondary" onClick={() => setPendingAction(null)}>
+              <X className="size-4" /> Agora não
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                const personExists = state.people.some((person) => person.id === pendingAction.personId);
+                state.addInstallmentPlan({
+                  title: pendingAction.title,
+                  merchant: pendingAction.merchant,
+                  kind: pendingAction.kind,
+                  installmentAmount: pendingAction.installmentAmount,
+                  totalCount: pendingAction.totalCount,
+                  startDate: pendingAction.startDate,
+                  personId: personExists ? pendingAction.personId : state.people[0]?.id ?? "",
+                  category: pendingAction.category,
+                  account: pendingAction.institution,
+                });
+                setMessages((current): ChatMessage[] => [...current, {
+                  id: uid(), role: "assistant" as const, createdAt: new Date().toISOString(),
+                  text: `${pendingAction.title} foi incluído em Empréstimos e nas despesas futuras: ${pendingAction.totalCount}x de ${formatBRL(pendingAction.installmentAmount)}.`,
+                }].slice(-30));
+                setPendingAction(null);
+                setSuggestions([]);
+                toast.success("Compromisso incluído nas despesas futuras.");
+              }}
+            >
+              <Check className="size-4" /> Confirmar
+            </Button>
+          </div>
         </div>
       ) : null}
 

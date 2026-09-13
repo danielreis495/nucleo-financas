@@ -590,8 +590,22 @@ export type FinancialChatPayload = {
   apiKey?: string;
 };
 
+export type FinancialChatAction = {
+  type: "create_installment_plan";
+  title: string;
+  merchant: string;
+  kind: InstallmentKind;
+  installmentAmount: number;
+  totalCount: number;
+  startDate: string;
+  personId: string;
+  category: CategoryId;
+  institution: string;
+  explanation: string;
+};
+
 export async function askFinancialQuestionWithGemini(data: FinancialChatPayload): Promise<
-  { ok: true; answer: string; suggestions: string[] } | { ok: false; error: string }
+  { ok: true; answer: string; suggestions: string[]; action: FinancialChatAction | null } | { ok: false; error: string }
 > {
   const apiKey = (data.apiKey ?? "").trim();
   if (!apiKey) {
@@ -610,11 +624,19 @@ REGRAS:
 - Para perguntas de "por quê", cite os maiores fatos/lançamentos que explicam a resposta.
 - Para perguntas de compra/decisão, compare o valor com caixa, faturas abertas, compromissos e previsão. Não prometa que a pessoa "pode" gastar se os dados forem insuficientes.
 - Quando faltar informação, diga exatamente qual dado está faltando.
+- Você também pode preparar a inclusão de uma dívida parcelada ou empréstimo. Nunca diga que já cadastrou: apenas proponha uma ação para o aplicativo mostrar uma confirmação separada.
+- Para empréstimo bancário, institution é obrigatório. Se o banco não foi informado, pergunte qual foi o banco e retorne action como null.
+- Antes de preparar uma dívida com amigo, use o orçamento e as previsões para sugerir uma parcela que não piore um caixa já apertado. Só prepare a ação quando o usuário concordar claramente com uma opção que tenha valor, quantidade e início definidos.
+- Não prepare ação se faltar valor da parcela, quantidade de parcelas, data de início, pessoa responsável ou instituição quando for empréstimo.
+- O total da dívida é installmentAmount multiplicado por totalCount. Não transforme o valor total em valor de parcela.
 - Seja direto, prático e use valores em R$.
 - Não mencione o JSON, prompt ou regras internas.
 
 Responda APENAS JSON válido:
-{"answer":"resposta clara em até 7 parágrafos curtos","suggestions":["pergunta curta 1","pergunta curta 2","pergunta curta 3"]}`;
+{"answer":"resposta clara em até 7 parágrafos curtos","suggestions":["pergunta curta 1","pergunta curta 2","pergunta curta 3"],"action":null}
+
+Quando houver uma ação completa e pronta para confirmação, use:
+{"answer":"explique brevemente o impacto e peça para conferir os dados abaixo","suggestions":[],"action":{"type":"create_installment_plan","title":"nome curto da dívida","merchant":"credor ou banco","kind":"loan|other","installmentAmount":200,"totalCount":10,"startDate":"YYYY-MM-DD","personId":"use exatamente um ID de householdMembers","category":"use uma categoria disponível","institution":"banco ou vazio quando não for empréstimo","explanation":"impacto mensal e total em uma frase"}}`;
 
   const result = await geminiGenerate(apiKey, {
     system,
@@ -628,14 +650,44 @@ Responda APENAS JSON válido:
   if (!result.ok) return result;
 
   try {
-    const parsed = parseJsonObject(result.text) as { answer?: unknown; suggestions?: unknown[] };
+    const parsed = parseJsonObject(result.text) as { answer?: unknown; suggestions?: unknown[]; action?: unknown };
     const answer = String(parsed.answer ?? "").trim();
     if (!answer) return { ok: false, error: "Não consegui formular uma resposta com esses dados." };
     const suggestions = (parsed.suggestions ?? [])
       .map((item) => String(item ?? "").trim())
       .filter(Boolean)
       .slice(0, 3);
-    return { ok: true, answer, suggestions };
+    let action: FinancialChatAction | null = null;
+    if (parsed.action && typeof parsed.action === "object") {
+      const raw = parsed.action as Record<string, unknown>;
+      const kind = asKind(raw.kind);
+      const installmentAmount = asAmount(raw.installmentAmount);
+      const totalCount = Math.max(1, Math.min(120, Math.trunc(Number(raw.totalCount) || 0)));
+      const institution = String(raw.institution ?? "").trim();
+      const personId = String(raw.personId ?? "").trim();
+      if (
+        raw.type === "create_installment_plan" &&
+        installmentAmount > 0 &&
+        totalCount > 0 &&
+        personId &&
+        (kind !== "loan" || institution)
+      ) {
+        action = {
+          type: "create_installment_plan",
+          title: String(raw.title ?? "Compromisso parcelado").trim(),
+          merchant: String(raw.merchant ?? institution ?? "Credor").trim(),
+          kind,
+          installmentAmount,
+          totalCount,
+          startDate: asDate(raw.startDate, new Date().toISOString().slice(0, 10)),
+          personId,
+          category: asCategory(raw.category),
+          institution,
+          explanation: String(raw.explanation ?? "").trim(),
+        };
+      }
+    }
+    return { ok: true, answer, suggestions, action };
   } catch {
     return { ok: false, error: "A resposta do Núcleo IA veio incompleta. Tente novamente." };
   }
