@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AlertTriangle, Check, CheckCircle2, Layers } from "lucide-react";
 import type { ExtractedItem, FinancialDocumentSummary } from "@/lib/types";
+import type { ImportOrigin } from "@/lib/transaction-origin";
 import { categoryLabel } from "@/lib/categories";
 import { rememberCategoryRule } from "@/lib/category-rules";
 import { rememberMerchantAlias } from "@/lib/merchant-aliases";
@@ -18,7 +19,9 @@ export function CaptureReview({
   accountId,
   duplicateSummary,
   documentSummary,
+  importOrigin,
   onAccountChange,
+  onCardOriginChange,
   onChange,
   onConfirm,
   onCancel,
@@ -27,7 +30,9 @@ export function CaptureReview({
   accountId: string | null;
   duplicateSummary?: { possibleCount: number; exactCount: number } | null;
   documentSummary?: FinancialDocumentSummary | null;
+  importOrigin?: ImportOrigin | null;
   onAccountChange: (accountId: string | null) => void;
+  onCardOriginChange: (institution: "Itaú" | "Nubank") => void;
   onChange: (items: ExtractedItem[]) => void;
   onConfirm: () => void;
   onCancel: () => void;
@@ -149,6 +154,37 @@ export function CaptureReview({
             </p>
           </div>
         ) : null}
+
+        <div className="mt-4 rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
+          <p className="text-xs font-medium text-muted">Origem dos lançamentos</p>
+          <p className="mt-1 text-sm font-medium">{importOrigin?.originLabel ?? "Não identificada"}</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted">
+            Se o Núcleo identificar o cartão errado, corrija antes de lançar.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {(["Itaú", "Nubank"] as const).map((institution) => {
+              const selectedCard =
+                importOrigin?.originKind === "credit_card" &&
+                importOrigin.originInstitution === institution;
+              return (
+                <button
+                  key={institution}
+                  type="button"
+                  onClick={() => {
+                    onAccountChange(null);
+                    onCardOriginChange(institution);
+                  }}
+                  className={cn(
+                    "h-9 rounded-full px-3 text-xs font-medium",
+                    selectedCard ? "bg-primary text-primary-fg" : "bg-line text-fg",
+                  )}
+                >
+                  Cartão {institution}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <p className="mt-4 mb-2 text-xs font-medium text-muted">Conta dos lançamentos</p>
         <div className="flex flex-wrap gap-1.5">
