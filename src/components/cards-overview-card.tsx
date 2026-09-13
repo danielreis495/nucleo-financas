@@ -115,7 +115,7 @@ export function CardsOverviewCard() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">Cartão {card.institution}</p>
                   <p className="mt-0.5 text-xs text-muted">
-                    {card.count} lançamento{card.count === 1 ? "" : "s"} na competência · gasto líquido {formatBRL(card.spent)}
+                    {card.count} lançamento{card.count === 1 ? "" : "s"} na competência
                   </p>
                 </div>
                 <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-medium", info.cls)}>
@@ -126,12 +126,18 @@ export function CardsOverviewCard() {
 
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <div className="rounded-md bg-elevated px-3 py-2">
+                  <p className="text-[10px] text-muted">Classificado no cartão</p>
+                  <p className="mt-0.5 font-display text-lg tabular-nums">
+                    {formatBRL(card.spent)}
+                  </p>
+                </div>
+                <div className="rounded-md bg-elevated px-3 py-2">
                   <p className="text-[10px] text-muted">Fatura oficial</p>
                   <p className="mt-0.5 font-display text-lg tabular-nums">
                     {card.total === null ? "—" : formatBRL(card.total)}
                   </p>
                 </div>
-                <div className="rounded-md bg-elevated px-3 py-2">
+                <div className="col-span-2 rounded-md bg-elevated px-3 py-2">
                   <p className="text-[10px] text-muted">{card.status === "paid" ? "Pagamento" : "Vencimento"}</p>
                   <p className="mt-0.5 text-sm font-medium">
                     {card.status === "paid" && card.paymentDate
