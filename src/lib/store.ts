@@ -26,6 +26,7 @@ import { paymentMethodForItem, type ImportOrigin } from "./transaction-origin";
 import { uid, isoDate, todayIso, monthKey } from "./utils";
 
 type FinanceActions = {
+  reconcileInstallment: (installmentId: string, paymentId: string | null) => boolean;
   hydrated: boolean;
   viewMonth: string;
   setHydrated: (v: boolean) => void;
@@ -149,8 +150,7 @@ function expandNewPlan(input: {
       const d = new Date(start);
       d.setMonth(d.getMonth() + (index - 1));
       date = isoDate(d);
-      const alreadyPaid = index < current || (index === current && date <= today);
-      status = alreadyPaid || date <= today ? "posted" : "scheduled";
+      status = "scheduled";
     }
 
     rows.push({
@@ -187,6 +187,25 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
   persist(
     (set, get) => ({
       ...createSeedState(),
+      reconcileInstallment: (installmentId, paymentId) => {
+        const rows = get().transactions;
+        const installment = rows.find((row) => row.id === installmentId);
+        if (!installment?.installmentId || installment.originKind === "credit_card") return false;
+        if (paymentId) {
+          const payment = rows.find((row) => row.id === paymentId);
+          if (installment.reconciledPaymentId || !payment || payment.installmentId ||
+              payment.status !== "posted" || payment.type !== "expense" ||
+              payment.originKind === "credit_card" || natureOf(payment) !== "budget" ||
+              Math.round(payment.amount * 100) !== Math.round(installment.amount * 100) ||
+              rows.some((row) => row.reconciledPaymentId === paymentId)) return false;
+        } else if (!installment.reconciledPaymentId) return false;
+        const event = { paymentId: paymentId ?? installment.reconciledPaymentId!, at: new Date().toISOString(), action: paymentId ? "link" as const : "unlink" as const };
+        set({ transactions: rows.map((row) => row.id === installmentId ? {
+          ...row, reconciledPaymentId: paymentId ?? undefined,
+          reconciliationHistory: [...(row.reconciliationHistory ?? []), event],
+        } : row), advice: null });
+        return true;
+      },
       hydrated: false,
       viewMonth: monthKey(new Date()),
       geminiKey: "",
@@ -287,11 +306,20 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
       },
       updateTransaction: (id, patch) =>
         set({
-          transactions: get().transactions.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+          transactions: get().transactions.map((t) => {
+            const linked = t.reconciledPaymentId && (t.id === id || t.reconciledPaymentId === id);
+            const next = t.id === id ? { ...t, ...patch } : t;
+            return linked ? { ...next, reconciledPaymentId: undefined,
+              reconciliationHistory: [...(t.reconciliationHistory ?? []), { paymentId: t.reconciledPaymentId!, at: new Date().toISOString(), action: "unlink" as const }],
+            } : next;
+          }),
           advice: null,
         }),
       removeTransaction: (id) =>
-        set({ transactions: get().transactions.filter((t) => t.id !== id), advice: null }),
+        set({ transactions: get().transactions.filter((t) => t.id !== id).map((t) => t.reconciledPaymentId === id ? {
+          ...t, reconciledPaymentId: undefined,
+          reconciliationHistory: [...(t.reconciliationHistory ?? []), { paymentId: id, at: new Date().toISOString(), action: "unlink" as const }],
+        } : t), advice: null }),
       restoreTransaction: (tx) => {
         if (get().transactions.some((t) => t.id === tx.id)) return;
         set({ transactions: [tx, ...get().transactions], advice: null });
@@ -458,14 +486,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
       },
       setAdvice: (advice) => set({ advice }),
       advanceDueInstallments: () => {
-        const today = todayIso();
-        const transactions = get().transactions.map((t) => {
-          if (t.status === "scheduled" && t.installmentId && t.date <= today) {
-            return { ...t, status: "posted" as const };
-          }
-          return t;
-        });
-        set({ transactions });
+        // Vencimento não comprova pagamento. A baixa exige conciliação explícita.
       },
     }),
     {

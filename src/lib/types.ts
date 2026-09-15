@@ -45,6 +45,8 @@ export type SplitShare = {
 };
 
 export type Transaction = {
+  reconciledPaymentId?: string;
+  reconciliationHistory?: { paymentId: string; at: string; action: "link" | "unlink" }[];
   id: string;
   date: string;
   description: string;

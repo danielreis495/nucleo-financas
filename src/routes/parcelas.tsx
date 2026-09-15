@@ -11,6 +11,7 @@ import { committedFuture, planProgress } from "@/lib/selectors";
 import { useFinanceStore } from "@/lib/store";
 import type { CategoryId, InstallmentKind } from "@/lib/types";
 import { cn, todayIso } from "@/lib/utils";
+import { InstallmentReconciliation } from "@/components/installment-reconciliation";
 
 export const Route = createFileRoute("/parcelas")({ component: ParcelasPage });
 
@@ -30,7 +31,7 @@ function ParcelasPage() {
       <p className="text-xs font-medium tracking-wide text-muted uppercase">Parcelas e empréstimos</p>
       <h1 className="font-display text-3xl tracking-tight">O que já está comprometido</h1>
       <p className="mt-2 text-sm text-muted">
-        O Núcleo lança cada parcela no mês certo e marca as vencidas sozinho.
+        Vencimento não significa pagamento. Confira as parcelas e vincule os pagamentos do extrato.
       </p>
 
       <Button className="mt-4" variant="secondary" onClick={() => setOpen((v) => !v)}>
@@ -91,8 +92,9 @@ function ParcelasPage() {
                 <p className="mt-2 text-xs text-muted">
                   {progress.next
                     ? `Próxima ${formatLongDate(progress.next.date)} · resta ${formatBRL(progress.remainingAmount)}`
-                    : "Quitado"}
+                    : progress.paid === progress.total ? "Quitado por conciliação" : "Histórico anterior a conferir"}
                 </p>
+                <InstallmentReconciliation planId={plan.id} />
               </li>
             );
           })
