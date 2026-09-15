@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowDownRight, ArrowUpRight, CalendarClock, Sparkles } from "lucide-react";
+import { CalendarClock, Sparkles } from "lucide-react";
 import { CashFlowForecastCard } from "@/components/cash-flow-forecast-card";
 import { CashPositionCard } from "@/components/cash-position-card";
+import { HomeCockpit } from "@/components/home-cockpit";
 import { MonthChangeCard } from "@/components/month-change-card";
 import { MonthHeader } from "@/components/month-header";
 import { MonthlySimulationCard } from "@/components/monthly-simulation-card";
@@ -60,37 +61,9 @@ function Home() {
         </p>
       ) : null}
 
-      <TodayBriefCard month={month} />
+      <HomeCockpit month={month} />
 
-      <section className="mx-5 rounded-xl bg-primary px-5 py-5 text-primary-fg">
-        <p className="text-xs font-medium tracking-wide text-primary-fg/70 uppercase">Resultado do mês</p>
-        <p className="mt-1 font-display text-4xl tabular-nums tracking-tight">{formatBRL(totals.balance)}</p>
-        <p className="mt-1 text-xs leading-relaxed text-primary-fg/70">
-          Entradas menos gastos do orçamento. Este valor não é o saldo que ficou nas suas contas.
-        </p>
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <Link
-            to="/extrato"
-            search={{ type: "income" }}
-            className="rounded-md bg-primary-fg/10 px-3 py-2 transition-colors active:bg-primary-fg/20"
-          >
-            <p className="flex items-center gap-1 text-[11px] text-primary-fg/70">
-              <ArrowUpRight className="size-3" /> Entradas
-            </p>
-            <p className="font-display text-lg tabular-nums">{formatBRLCompact(totals.income)}</p>
-          </Link>
-          <Link
-            to="/extrato"
-            search={{ type: "expense" }}
-            className="rounded-md bg-primary-fg/10 px-3 py-2 transition-colors active:bg-primary-fg/20"
-          >
-            <p className="flex items-center gap-1 text-[11px] text-primary-fg/70">
-              <ArrowDownRight className="size-3" /> Saídas
-            </p>
-            <p className="font-display text-lg tabular-nums">{formatBRLCompact(totals.expense)}</p>
-          </Link>
-        </div>
-      </section>
+      <TodayBriefCard month={month} />
 
       <MonthlySimulationCard month={month} />
 
