@@ -40,8 +40,8 @@ export function natureOf(row: { nature?: TxNature }) {
   return row.nature ?? "budget";
 }
 
-export function countsInBudget(row: { nature?: TxNature }) {
-  return natureOf(row) === "budget";
+export function countsInBudget(row: { nature?: TxNature; reconciledPaymentId?: string }) {
+  return !row.reconciledPaymentId && natureOf(row) === "budget";
 }
 
 export function isExpenseRefund(

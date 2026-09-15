@@ -7,6 +7,7 @@ import type {
 } from "./types";
 import { countsInBudget, isExpenseRefund } from "./movement-nature";
 import { monthKey } from "./utils";
+import { monthlyIncomeForecast } from "./forecast";
 
 const ESSENTIAL_CATEGORIES = new Set<CategoryId>([
   "mercado",
@@ -54,6 +55,7 @@ export function accountMovement(state: FinanceState, account: Account) {
     .filter(
       (t) =>
         t.accountId === account.id &&
+        !t.reconciledPaymentId &&
         t.status === "posted" &&
         t.createdAt > account.createdAt &&
         t.date >= anchorDate,
@@ -155,13 +157,13 @@ export function planProgress(state: FinanceState, planId: string) {
   const txs = state.transactions.filter((t) => t.installmentId === planId);
   const plan = state.plans.find((p) => p.id === planId);
   const importedPast = plan?.importedCurrentIndex ? Math.max(0, plan.importedCurrentIndex - 1) : 0;
-  const paidVisible = txs.filter((t) => t.status === "posted").length;
+  const paidVisible = txs.filter((t) => Boolean(t.reconciledPaymentId || t.manualPayment)).length;
   const total = plan?.totalCount ?? txs.length;
-  const paid = Math.min(total, importedPast + paidVisible);
-  const remaining = txs.filter((t) => t.status === "scheduled");
+  const paid = Math.min(total, paidVisible);
+  const remaining = txs.filter((t) => !t.reconciledPaymentId && !t.manualPayment);
   const remainingAmount = sumBy(remaining, (t) => t.amount);
   const next = remaining.sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
-  return { paid, total, remainingAmount, next };
+  return { paid, total, remainingAmount, next, unverifiedPast: importedPast };
 }
 
 export function committedFuture(state: FinanceState, fromIso: string) {
@@ -193,6 +195,8 @@ export function personById(people: Person[], id: string) {
 }
 
 export type FinancialSnapshot = {
+  receivedIncome: number;
+  expectedIncome: number;
   income: number;
   postedExpense: number;
   scheduledExpense: number;
@@ -224,7 +228,9 @@ export function financialSnapshot(state: FinanceState, key: string): FinancialSn
   const postedRefunds = refundsOf(posted);
   const incomes = incomeOf(posted);
 
-  const income = sumBy(incomes, (t) => t.amount);
+  const incomeForecast = monthlyIncomeForecast(state, key);
+  const receivedIncome = incomeForecast.received;
+  const income = incomeForecast.expectedTotal;
   const postedExpense = Math.max(
     0,
     sumBy(postedExpenses, (t) => t.amount) - sumBy(postedRefunds, (t) => t.amount),
@@ -239,7 +245,7 @@ export function financialSnapshot(state: FinanceState, key: string): FinancialSn
   );
   const variableExpense = Math.max(0, postedExpense - essentialExpense);
   const installmentExpense = sumBy(
-    expensesOf(rows).filter((t) => Boolean(t.installmentId)),
+    expensesOf(rows).filter((t) => Boolean(t.installmentId) || state.transactions.some((item) => item.reconciledPaymentId === t.id)),
     (t) => t.amount,
   );
   const margin = income - plannedOutflow;
@@ -287,6 +293,8 @@ export function financialSnapshot(state: FinanceState, key: string): FinancialSn
   const recoveryTarget = margin < 0 && income > 0 ? roundDown10(Math.abs(margin) + income * 0.05) : 0;
 
   return {
+    receivedIncome,
+    expectedIncome: income - receivedIncome,
     income,
     postedExpense,
     scheduledExpense,

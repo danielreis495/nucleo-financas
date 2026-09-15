@@ -104,6 +104,9 @@ export function AdvisorChat({ month }: { month: string }) {
         ? ["mercado", "alimentacao", "transporte", "moradia", "contas", "saude", "educacao", "lazer", "assinaturas", "vestuario", "pets", "viagem", "outros", ...state.customCategories.filter((item) => item.group === "gasto").map((item) => item.id)]
         : ["mercado", "alimentacao", "transporte", "moradia", "contas", "saude", "educacao", "lazer", "assinaturas", "vestuario", "pets", "viagem", "outros"],
       budget: {
+        receivedIncome: snapshot.receivedIncome,
+        pendingEstimatedIncome: snapshot.expectedIncome,
+        incomeIncludesEstimates: true,
         income: snapshot.income,
         postedExpense: snapshot.postedExpense,
         scheduledExpense: snapshot.scheduledExpense,

@@ -11,6 +11,7 @@ import { committedFuture, planProgress } from "@/lib/selectors";
 import { useFinanceStore } from "@/lib/store";
 import type { CategoryId, InstallmentKind } from "@/lib/types";
 import { cn, todayIso } from "@/lib/utils";
+import { InstallmentReconciliation } from "@/components/installment-reconciliation";
 
 export const Route = createFileRoute("/parcelas")({ component: ParcelasPage });
 
@@ -30,7 +31,7 @@ function ParcelasPage() {
       <p className="text-xs font-medium tracking-wide text-muted uppercase">Parcelas e empréstimos</p>
       <h1 className="font-display text-3xl tracking-tight">O que já está comprometido</h1>
       <p className="mt-2 text-sm text-muted">
-        O Núcleo lança cada parcela no mês certo e marca as vencidas sozinho.
+        Vencimento não significa pagamento. Confira as parcelas e vincule os pagamentos do extrato.
       </p>
 
       <Button className="mt-4" variant="secondary" onClick={() => setOpen((v) => !v)}>
@@ -91,8 +92,10 @@ function ParcelasPage() {
                 <p className="mt-2 text-xs text-muted">
                   {progress.next
                     ? `Próxima ${formatLongDate(progress.next.date)} · resta ${formatBRL(progress.remainingAmount)}`
-                    : "Quitado"}
+                    : progress.paid === progress.total ? "Quitado por conciliação" : "Histórico anterior a conferir"}
                 </p>
+                <InstallmentReconciliation planId={plan.id} />
+                <PlanKindEditor planId={plan.id} kind={plan.kind} />
               </li>
             );
           })
@@ -100,6 +103,18 @@ function ParcelasPage() {
       </ul>
     </main>
   );
+}
+
+function PlanKindEditor({ planId, kind }: { planId: string; kind: InstallmentKind }) {
+  const update = useFinanceStore((s) => s.updateInstallmentKind);
+  const [draft, setDraft] = useState(kind);
+  return <details className="mt-3 text-sm"><summary className="cursor-pointer">Corrigir tipo do parcelamento</summary>
+    <p className="my-2">Altera o tipo do cadastro e preserva valores, datas e pagamentos. A origem de compras importadas de faturas continua preservada.</p>
+    <label>Tipo<select className="my-2 block w-full rounded-md bg-surface p-2" value={draft} onChange={(e) => setDraft(e.target.value as InstallmentKind)}>
+      <option value="card">Cartão</option><option value="loan">Empréstimo / financiamento</option><option value="other">Outro</option>
+    </select></label>
+    <Button variant="secondary" disabled={draft === kind} onClick={() => { if (update(planId, draft)) toast.success("Tipo atualizado. Parcelas preservadas."); }}>Confirmar alteração do tipo</Button>
+  </details>;
 }
 
 function NewPlanForm({

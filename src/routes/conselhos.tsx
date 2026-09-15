@@ -231,11 +231,12 @@ function ConselhosPage() {
       <AdvisorChat month={month} />
 
       <FinancialAlertsCard month={month} />
+      <p className="mt-4 text-sm text-muted">A projeção inclui entradas ainda não recebidas. Não representa dinheiro disponível hoje e depende da confirmação dessas entradas.</p>
 
       <section className="mt-5 rounded-xl bg-primary px-5 py-5 text-primary-fg">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-medium tracking-wide text-primary-fg/70 uppercase">Saúde financeira</p>
+            <p className="text-xs font-medium tracking-wide text-primary-fg/70 uppercase">Saúde financeira projetada</p>
             <p className="mt-1 font-display text-4xl tabular-nums">
               {snapshot.score === null ? "—" : `${snapshot.score}/100`}
             </p>
@@ -250,7 +251,9 @@ function ConselhosPage() {
       <section className="mt-5">
         <h2 className="font-display text-xl">Seu dinheiro</h2>
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <Metric label="Entradas do orçamento" value={formatBRL(snapshot.income)} />
+          <Metric label="Entradas recebidas" value={formatBRL(snapshot.receivedIncome)} />
+          <Metric label="Entradas ainda previstas" value={formatBRL(snapshot.expectedIncome)} />
+          <Metric label="Total de entradas projetadas" value={formatBRL(snapshot.income)} />
           <Metric label="Saídas realizadas" value={formatBRL(snapshot.postedExpense)} />
           <Metric label="Saldo nas contas" value={cash.cashKnown ? formatBRL(cash.cashBalance) : "—"} />
           <Metric label="Faturas a pagar" value={cash.billsKnown ? formatBRL(cash.billsDue) : "—"} />
