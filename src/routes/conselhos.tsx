@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Loader2, ShieldCheck, Sparkles, Target, WalletCards } from "lucide-react";
+import { ChevronDown, Loader2, ShieldCheck, Sparkles, Target, WalletCards } from "lucide-react";
 import { AdvisorChat } from "@/components/advisor-chat";
 import { FinancialAlertsCard } from "@/components/financial-alerts-card";
 import { Button } from "@/components/ui/button";
@@ -221,46 +221,104 @@ function ConselhosPage() {
   }
 
   return (
-    <main className="flex flex-col px-5 pt-6 pb-8">
-      <p className="text-xs font-medium tracking-wide text-muted uppercase">Núcleo IA</p>
-      <h1 className="font-display text-3xl tracking-tight">Seu copiloto financeiro</h1>
+    <main className="flex flex-col px-5 pb-8 pt-5">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">Núcleo</p>
+          <h1 className="font-display text-3xl tracking-tight">Seu financeiro, sem complicação</h1>
+        </div>
+        <span className="shrink-0 rounded-full bg-primary-soft px-3 py-1 text-[10px] font-medium text-primary">
+          {formatMonthTitle(month)}
+        </span>
+      </div>
       <p className="mt-2 text-sm leading-relaxed text-muted">
-        Pergunte sobre seus gastos, caixa, faturas e próximos meses. Abaixo, o Raio-X de {formatMonthTitle(month)} continua disponível para conferência.
+        Veja o que precisa de atenção, converse com seus dados e transforme o diagnóstico em ações simples.
       </p>
+
+      <section className="mt-4 overflow-hidden rounded-2xl bg-primary text-primary-fg shadow-[var(--shadow-border)]">
+        <div className="px-5 pb-4 pt-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-primary-fg/65">
+                Situação projetada
+              </p>
+              <h2 className="mt-1 font-display text-2xl">
+                {healthLabel(snapshot.status, cash.netAvailable)}
+              </h2>
+            </div>
+            <span className="rounded-full bg-primary-fg/10 px-3 py-1 text-xs font-medium">
+              {snapshot.score === null ? "Sem nota" : `${snapshot.score}/100`}
+            </span>
+          </div>
+          <p className="mt-2 text-sm leading-relaxed text-primary-fg/80">
+            {diagnosis(snapshot, cash.netAvailable)}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-3 border-t border-primary-fg/10 bg-primary-fg/[0.04]">
+          <HeroMetric
+            label="Disponível"
+            value={cash.netAvailable === null ? "—" : formatBRL(cash.netAvailable)}
+            danger={cash.netAvailable !== null && cash.netAvailable < 0}
+          />
+          <HeroMetric
+            label="Projeção"
+            value={formatBRL(snapshot.margin)}
+            danger={snapshot.margin < 0}
+          />
+          <HeroMetric label="Parcelas" value={formatBRL(snapshot.installmentExpense)} />
+        </div>
+      </section>
 
       <AdvisorChat month={month} />
 
-      <FinancialAlertsCard month={month} />
-      <p className="mt-4 text-sm text-muted">A projeção inclui entradas ainda não recebidas. Não representa dinheiro disponível hoje e depende da confirmação dessas entradas.</p>
-
-      <section className="mt-5 rounded-xl bg-primary px-5 py-5 text-primary-fg">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-medium tracking-wide text-primary-fg/70 uppercase">Saúde financeira projetada</p>
-            <p className="mt-1 font-display text-4xl tabular-nums">
-              {snapshot.score === null ? "—" : `${snapshot.score}/100`}
-            </p>
-          </div>
-          <span className="rounded-full bg-primary-fg/10 px-3 py-1 text-xs font-medium">
-            {healthLabel(snapshot.status, cash.netAvailable)}
-          </span>
+      <section className="mt-4 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="size-4 text-primary" />
+          <h2 className="font-display text-xl">O que fazer agora</h2>
         </div>
-        <p className="mt-3 text-sm leading-relaxed text-primary-fg/85">{diagnosis(snapshot, cash.netAvailable)}</p>
+        <ol className="mt-3 flex flex-col gap-3">
+          {priorities.slice(0, 3).map((item, index) => (
+            <li key={item} className="flex gap-3 text-sm leading-relaxed">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary-soft text-xs font-semibold text-primary">
+                {index + 1}
+              </span>
+              <span>{item}</span>
+            </li>
+          ))}
+        </ol>
+
+        <div className="mt-4 rounded-xl bg-primary-soft p-3.5 text-primary">
+          <div className="flex items-center gap-2">
+            <Target className="size-4" />
+            <p className="text-[10px] font-medium uppercase tracking-wide">Meta do momento</p>
+          </div>
+          <p className="mt-1 font-display text-xl">{goal.title}</p>
+          <p className="mt-1 text-xs leading-relaxed text-primary/80">{goal.body}</p>
+        </div>
       </section>
 
-      <section className="mt-5">
-        <h2 className="font-display text-xl">Seu dinheiro</h2>
-        <div className="mt-3 grid grid-cols-2 gap-2">
+      <FinancialAlertsCard month={month} />
+
+      <details className="group mt-4 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted">Dados do mês</p>
+            <h2 className="font-display text-xl">Ver Raio-X completo</h2>
+          </div>
+          <ChevronDown className="size-5 text-muted transition-transform group-open:rotate-180" />
+        </summary>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
           <Metric label="Entradas recebidas" value={formatBRL(snapshot.receivedIncome)} />
-          <Metric label="Entradas ainda previstas" value={formatBRL(snapshot.expectedIncome)} />
-          <Metric label="Total de entradas projetadas" value={formatBRL(snapshot.income)} />
+          <Metric label="Entradas previstas" value={formatBRL(snapshot.expectedIncome)} />
           <Metric label="Saídas realizadas" value={formatBRL(snapshot.postedExpense)} />
+          <Metric label="Saídas programadas" value={formatBRL(snapshot.scheduledExpense)} />
           <Metric label="Saldo nas contas" value={cash.cashKnown ? formatBRL(cash.cashBalance) : "—"} />
           <Metric label="Faturas a pagar" value={cash.billsKnown ? formatBRL(cash.billsDue) : "—"} />
-          <Metric label="Disponível líquido" value={cash.netAvailable === null ? "—" : formatBRL(cash.netAvailable)} />
-          <Metric label="Parcelas no mês" value={formatBRL(snapshot.installmentExpense)} />
         </div>
-        <div className="mt-2 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+
+        <div className="mt-2 rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs text-muted">Resultado previsto do orçamento</p>
@@ -274,42 +332,24 @@ function ConselhosPage() {
             Compromissos futuros cadastrados: {formatBRL(futureCommitted)}
           </p>
         </div>
-      </section>
+      </details>
 
-      <section className="mt-5 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="size-5 text-primary" />
-          <h2 className="font-display text-xl">3 prioridades agora</h2>
-        </div>
-        <ol className="mt-3 flex flex-col gap-3">
-          {priorities.slice(0, 3).map((item, index) => (
-            <li key={item} className="flex gap-3 text-sm leading-relaxed">
-              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary-soft text-xs font-semibold text-primary">
-                {index + 1}
-              </span>
-              <span>{item}</span>
-            </li>
-          ))}
-        </ol>
-      </section>
+      <details className="group mt-3 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="size-4 text-primary" />
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted">Plano detalhado</p>
+              <h2 className="font-display text-xl">Orientação do consultor</h2>
+            </div>
+          </div>
+          <ChevronDown className="size-5 text-muted transition-transform group-open:rotate-180" />
+        </summary>
 
-      <section className="mt-3 rounded-xl bg-primary-soft p-4 text-primary">
-        <div className="flex items-center gap-2">
-          <Target className="size-5" />
-          <p className="text-xs font-medium tracking-wide uppercase">Meta recomendada</p>
-        </div>
-        <h2 className="mt-2 font-display text-2xl">{goal.title}</h2>
-        <p className="mt-1 text-sm leading-relaxed text-primary/80">{goal.body}</p>
-      </section>
-
-      <section className="mt-6 border-t border-line pt-5">
-        <div className="flex items-center gap-2">
-          <Sparkles className="size-5 text-primary" />
-          <h2 className="font-display text-xl">Orientação detalhada</h2>
-        </div>
-        <p className="mt-1 text-sm text-muted">
-          A IA recebe os números do orçamento; o Núcleo aplica por cima a regra de caixa real para não recomendar poupança quando houver déficit após faturas.
+        <p className="mt-3 text-xs leading-relaxed text-muted">
+          A análise usa os números do orçamento e respeita o caixa real. Ela não recomenda poupança quando as contas e faturas indicam déficit.
         </p>
+
         <Button className="mt-4 w-full" onClick={() => void run()} disabled={busy}>
           {busy ? (
             <>
@@ -319,22 +359,22 @@ function ConselhosPage() {
           ) : cached ? (
             "Atualizar orientação"
           ) : (
-            "Gerar orientação do consultor"
+            "Gerar orientação"
           )}
         </Button>
 
         {cached ? (
           <div className="stagger-in mt-4 flex flex-col gap-3">
-            <p className="rounded-xl bg-elevated p-4 text-sm leading-relaxed shadow-[var(--shadow-border)]">
+            <p className="rounded-xl bg-surface p-4 text-sm leading-relaxed shadow-[var(--shadow-border)]">
               {cached.summary}
             </p>
             {cached.items.map((item) => (
-              <article key={item.id} className="rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+              <article key={item.id} className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
                 <div className="flex items-start justify-between gap-3">
                   <h3 className="font-medium">{item.title}</h3>
                   <span
                     className={cn(
-                      "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                      "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium",
                       item.severity === "high"
                         ? "bg-danger-soft text-danger"
                         : item.severity === "medium"
@@ -358,20 +398,39 @@ function ConselhosPage() {
             ))}
           </div>
         ) : null}
-      </section>
+      </details>
 
-      <p className="mt-6 text-center text-xs text-muted">
-        Base: {snapshot.transactionCount} lançamento{snapshot.transactionCount === 1 ? "" : "s"}, {cash.cashSources} saldo{cash.cashSources === 1 ? "" : "s"} final{cash.cashSources === 1 ? "" : "is"}, {cash.billCount} fatura{cash.billCount === 1 ? "" : "s"} e {state.plans.length} plano{state.plans.length === 1 ? "" : "s"} de parcelas.
+      <p className="mt-5 text-center text-[10px] leading-relaxed text-muted">
+        Base atual: {snapshot.transactionCount} lançamento{snapshot.transactionCount === 1 ? "" : "s"}, {cash.cashSources} saldo{cash.cashSources === 1 ? "" : "s"} final{cash.cashSources === 1 ? "" : "is"}, {cash.billCount} fatura{cash.billCount === 1 ? "" : "s"} e {state.plans.length} plano{state.plans.length === 1 ? "" : "s"} de parcelas.
       </p>
     </main>
   );
 }
 
+function HeroMetric({
+  label,
+  value,
+  danger = false,
+}: {
+  label: string;
+  value: string;
+  danger?: boolean;
+}) {
+  return (
+    <div className="min-w-0 px-3 py-3">
+      <p className="text-[10px] text-primary-fg/60">{label}</p>
+      <p className={cn("mt-0.5 truncate font-display text-sm tabular-nums", danger && "text-[#ffd6cf]")}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-elevated p-3 shadow-[var(--shadow-border)]">
-      <p className="text-[11px] text-muted">{label}</p>
-      <p className="mt-1 font-display text-lg tabular-nums">{value}</p>
+    <div className="rounded-xl bg-surface p-3 shadow-[var(--shadow-border)]">
+      <p className="text-[10px] text-muted">{label}</p>
+      <p className="mt-1 font-display text-base tabular-nums">{value}</p>
     </div>
   );
 }
