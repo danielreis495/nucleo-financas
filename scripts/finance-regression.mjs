@@ -32,5 +32,28 @@ try {
   store.getState().removeTransaction(payment.id);
   assert.equal(planProgress(store.getState(), first.installmentId).paid, 0);
   assert.equal(store.getState().transactions.find((row) => row.id === first.id).reconciliationHistory.length, 4);
-  console.log("PASS: projected income, due date, reconciliation, duplicate guard, undo, deletion invalidation.");
+  store.getState().clearAll();
+  store.getState().addAccount({ name: "Conta teste", institution: "Banco teste", type: "checking", openingBalance: 0 });
+  const accountId = store.getState().accounts[0].id;
+  store.getState().addInstallmentPlan({ title: "Teste financiamento", merchant: "Teste", kind: "card", installmentAmount: 150, totalCount: 37, startDate: "2026-09-09", personId: "p-you", category: "outros" });
+  const target = store.getState().transactions[0];
+  // Reproduces a legacy posted installment, without uploading any personal backup data.
+  store.getState().updateTransaction(target.id, { status: "posted", accountId });
+  const before = JSON.stringify(store.getState().transactions);
+  assert.equal(store.getState().updateInstallmentKind(target.installmentId, "loan"), true);
+  assert.equal(JSON.stringify(store.getState().transactions), before);
+  const expense = financialSnapshot(store.getState(), "2026-09").plannedOutflow;
+  assert.equal(store.getState().confirmInstallmentPaid(target.id, { date: "2026-02-30", accountId }), false);
+  assert.equal(store.getState().confirmInstallmentPaid(target.id, { date: "2026-09-09", accountId: "missing" }), false);
+  assert.equal(store.getState().confirmInstallmentPaid(target.id, { date: "2026-09-09", accountId }), true);
+  assert.equal(store.getState().confirmInstallmentPaid(target.id, { date: "2026-09-09", accountId }), false);
+  assert.equal(store.getState().transactions.length, 37);
+  assert.equal(financialSnapshot(store.getState(), "2026-09").plannedOutflow, expense);
+  assert.equal(planProgress(store.getState(), target.installmentId).paid, 1);
+  assert.equal(planProgress(store.getState(), target.installmentId).remainingAmount, 5400);
+  assert.equal(store.getState().confirmInstallmentPaid(target.id, null), true);
+  assert.equal(planProgress(store.getState(), target.installmentId).paid, 0);
+  assert.equal(store.getState().transactions[0].status, "posted");
+  assert.equal(store.getState().transactions[0].accountId, accountId);
+  console.log("PASS: projection, links, duplicates, manual confirmation, 37 installments, unchanged expense, 5400 remaining, undo, plan kind preservation.");
 } finally { await server.close(); }

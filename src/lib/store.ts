@@ -26,6 +26,8 @@ import { paymentMethodForItem, type ImportOrigin } from "./transaction-origin";
 import { uid, isoDate, todayIso, monthKey } from "./utils";
 
 type FinanceActions = {
+  confirmInstallmentPaid: (id: string, payment: { date: string; accountId: string } | null) => boolean;
+  updateInstallmentKind: (id: string, kind: InstallmentKind) => boolean;
   reconcileInstallment: (installmentId: string, paymentId: string | null) => boolean;
   hydrated: boolean;
   viewMonth: string;
@@ -187,13 +189,36 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
   persist(
     (set, get) => ({
       ...createSeedState(),
+      updateInstallmentKind: (id, kind) => {
+        if (!["loan", "card", "other"].includes(kind) || !get().plans.some((p) => p.id === id)) return false;
+        // Tipo do cadastro não reclassifica movimentos já importados de uma fatura.
+        set({ plans: get().plans.map((p) => p.id === id ? { ...p, kind } : p), advice: null });
+        return true;
+      },
+      confirmInstallmentPaid: (id, payment) => {
+        const row = get().transactions.find((t) => t.id === id);
+        if (!row?.installmentId || row.originKind === "credit_card" || row.reconciledPaymentId || row.type !== "expense" || natureOf(row) !== "budget") return false;
+        if (payment) {
+          if (row.manualPayment || !/^\d{4}-\d{2}-\d{2}$/.test(payment.date) ||
+              !Number.isFinite(Date.parse(payment.date)) || new Date(payment.date).toISOString().slice(0, 10) !== payment.date || payment.date > todayIso() ||
+              !get().accounts.some((a) => a.id === payment.accountId && a.active)) return false;
+        } else if (!row.manualPayment) return false;
+        const at = new Date().toISOString();
+        const updated: Transaction = payment ? {
+          ...row, date: payment.date, accountId: payment.accountId, status: "posted",
+          manualPayment: { confirmedAt: at, previous: { date: row.date, status: row.status, accountId: row.accountId } },
+        } : { ...row, ...row.manualPayment!.previous, manualPayment: undefined };
+        updated.reconciliationHistory = [...(row.reconciliationHistory ?? []), { paymentId: id, at, action: payment ? "manual" : "undo_manual" }];
+        set({ transactions: get().transactions.map((t) => t.id === id ? updated : t), advice: null });
+        return true;
+      },
       reconcileInstallment: (installmentId, paymentId) => {
         const rows = get().transactions;
         const installment = rows.find((row) => row.id === installmentId);
         if (!installment?.installmentId || installment.originKind === "credit_card") return false;
         if (paymentId) {
           const payment = rows.find((row) => row.id === paymentId);
-          if (installment.reconciledPaymentId || !payment || payment.installmentId ||
+          if (installment.manualPayment || installment.reconciledPaymentId || !payment || payment.installmentId ||
               payment.status !== "posted" || payment.type !== "expense" ||
               payment.originKind === "credit_card" || natureOf(payment) !== "budget" ||
               Math.round(payment.amount * 100) !== Math.round(installment.amount * 100) ||
@@ -308,7 +333,9 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         set({
           transactions: get().transactions.map((t) => {
             const linked = t.reconciledPaymentId && (t.id === id || t.reconciledPaymentId === id);
-            const next = t.id === id ? { ...t, ...patch } : t;
+            const next = t.id === id ? { ...t, ...patch, manualPayment: undefined,
+              reconciliationHistory: t.manualPayment ? [...(t.reconciliationHistory ?? []), { paymentId: id, at: new Date().toISOString(), action: "undo_manual" as const }] : t.reconciliationHistory,
+            } : t;
             return linked ? { ...next, reconciledPaymentId: undefined,
               reconciliationHistory: [...(t.reconciliationHistory ?? []), { paymentId: t.reconciledPaymentId!, at: new Date().toISOString(), action: "unlink" as const }],
             } : next;

@@ -157,10 +157,10 @@ export function planProgress(state: FinanceState, planId: string) {
   const txs = state.transactions.filter((t) => t.installmentId === planId);
   const plan = state.plans.find((p) => p.id === planId);
   const importedPast = plan?.importedCurrentIndex ? Math.max(0, plan.importedCurrentIndex - 1) : 0;
-  const paidVisible = txs.filter((t) => Boolean(t.reconciledPaymentId)).length;
+  const paidVisible = txs.filter((t) => Boolean(t.reconciledPaymentId || t.manualPayment)).length;
   const total = plan?.totalCount ?? txs.length;
   const paid = Math.min(total, paidVisible);
-  const remaining = txs.filter((t) => !t.reconciledPaymentId);
+  const remaining = txs.filter((t) => !t.reconciledPaymentId && !t.manualPayment);
   const remainingAmount = sumBy(remaining, (t) => t.amount);
   const next = remaining.sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
   return { paid, total, remainingAmount, next, unverifiedPast: importedPast };

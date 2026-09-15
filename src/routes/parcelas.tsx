@@ -95,6 +95,7 @@ function ParcelasPage() {
                     : progress.paid === progress.total ? "Quitado por conciliação" : "Histórico anterior a conferir"}
                 </p>
                 <InstallmentReconciliation planId={plan.id} />
+                <PlanKindEditor planId={plan.id} kind={plan.kind} />
               </li>
             );
           })
@@ -102,6 +103,18 @@ function ParcelasPage() {
       </ul>
     </main>
   );
+}
+
+function PlanKindEditor({ planId, kind }: { planId: string; kind: InstallmentKind }) {
+  const update = useFinanceStore((s) => s.updateInstallmentKind);
+  const [draft, setDraft] = useState(kind);
+  return <details className="mt-3 text-sm"><summary className="cursor-pointer">Corrigir tipo do parcelamento</summary>
+    <p className="my-2">Altera o tipo do cadastro e preserva valores, datas e pagamentos. A origem de compras importadas de faturas continua preservada.</p>
+    <label>Tipo<select className="my-2 block w-full rounded-md bg-surface p-2" value={draft} onChange={(e) => setDraft(e.target.value as InstallmentKind)}>
+      <option value="card">Cartão</option><option value="loan">Empréstimo / financiamento</option><option value="other">Outro</option>
+    </select></label>
+    <Button variant="secondary" disabled={draft === kind} onClick={() => { if (update(planId, draft)) toast.success("Tipo atualizado. Parcelas preservadas."); }}>Confirmar alteração do tipo</Button>
+  </details>;
 }
 
 function NewPlanForm({
