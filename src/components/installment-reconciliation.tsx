@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link2, ReceiptCheck } from "lucide-react";
+import { Link2, ReceiptText } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { natureOf } from "@/lib/movement-nature";
@@ -40,7 +40,7 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
   return (
     <details className="rounded-lg bg-surface px-3 py-2.5 text-sm shadow-[var(--shadow-border)]">
       <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-medium">
-        <ReceiptCheck className="size-4 text-primary" />
+        <ReceiptText className="size-4 text-primary" />
         Confirmar ou conciliar pagamento
       </summary>
 
