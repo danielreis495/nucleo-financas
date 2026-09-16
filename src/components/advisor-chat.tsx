@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { Bot, CalendarDays, Check, Landmark, Send, Sparkles, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -30,10 +31,10 @@ type ChatMessage = {
 const CHAT_KEY = "nucleo-advisor-chat-v1";
 
 const STARTERS = [
-  "Por que meu mês ficou assim?",
-  "O que mais está pesando no meu orçamento?",
-  "Quanto posso gastar sem apertar meu caixa?",
-  "Quais contas devo priorizar agora?",
+  "Como está meu mês?",
+  "Consigo pagar tudo até o fim do mês?",
+  "Onde estou gastando mais?",
+  "O que devo priorizar agora?",
 ];
 
 function loadMessages() {
@@ -236,22 +237,22 @@ export function AdvisorChat({ month }: { month: string }) {
     }
   }
 
+  const aiEnabled = Boolean(state.geminiKey?.trim());
+
   return (
-    <section className="mt-5 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+    <section className="mt-4 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary-soft text-primary">
-            <Bot className="size-5" />
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-fg">
+            <Sparkles className="size-4" />
           </span>
-          <div>
-            <p className="text-xs font-medium tracking-wide text-primary uppercase">Núcleo IA</p>
-            <h2 className="font-display text-xl">Converse com suas finanças</h2>
-            <p className="mt-1 text-xs leading-relaxed text-muted">
-              As respostas usam seus lançamentos, contas, faturas, parcelas e previsões do Núcleo.
-            </p>
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-primary">Núcleo IA</p>
+            <h2 className="font-display text-xl">Pergunte ao Núcleo</h2>
           </div>
         </div>
-        {messages.length > 0 ? (
+
+        {aiEnabled && messages.length > 0 ? (
           <button
             type="button"
             aria-label="Limpar conversa"
@@ -265,24 +266,47 @@ export function AdvisorChat({ month }: { month: string }) {
           >
             <Trash2 className="size-4" />
           </button>
-        ) : null}
+        ) : (
+          <span className="shrink-0 rounded-full bg-primary-soft px-2.5 py-1 text-[10px] font-medium text-primary">
+            IA opcional
+          </span>
+        )}
       </div>
 
-      {messages.length === 0 ? (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {STARTERS.map((starter) => (
-            <button
-              key={starter}
-              type="button"
-              onClick={() => void ask(starter)}
-              className="rounded-full bg-surface px-3 py-2 text-left text-xs font-medium shadow-[var(--shadow-border)]"
-            >
-              {starter}
-            </button>
-          ))}
+      {!aiEnabled ? (
+        <div className="mt-4 rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
+          <p className="text-sm font-medium">Seu Raio-X funciona sem chave de IA</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted">
+            Alertas, prioridades, caixa, projeções e orientação do mês continuam disponíveis normalmente.
+            A chave do Gemini só é necessária para conversar livremente com seus dados.
+          </p>
+          <Link
+            to="/casa"
+            className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary"
+          >
+            Ativar conversa com IA
+          </Link>
         </div>
+      ) : messages.length === 0 ? (
+        <>
+          <p className="mt-3 text-xs leading-relaxed text-muted">
+            Pergunte em linguagem simples. O Núcleo usa seus lançamentos, contas, faturas, parcelas e previsões.
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {STARTERS.map((starter) => (
+              <button
+                key={starter}
+                type="button"
+                onClick={() => void ask(starter)}
+                className="min-h-16 rounded-xl bg-surface px-3 py-3 text-left text-xs font-medium leading-snug shadow-[var(--shadow-border)] transition-transform active:scale-[0.98]"
+              >
+                {starter}
+              </button>
+            ))}
+          </div>
+        </>
       ) : (
-        <div className="mt-4 max-h-[430px] space-y-3 overflow-y-auto pr-1">
+        <div className="mt-4 max-h-[460px] space-y-3 overflow-y-auto pr-1">
           {messages.map((message) => (
             <div
               key={message.id}
@@ -291,7 +315,7 @@ export function AdvisorChat({ month }: { month: string }) {
               <div
                 className={
                   message.role === "user"
-                    ? "max-w-[88%] rounded-2xl rounded-br-md bg-primary px-3.5 py-2.5 text-sm leading-relaxed text-primary-fg"
+                    ? "max-w-[86%] rounded-2xl rounded-br-md bg-primary px-3.5 py-2.5 text-sm leading-relaxed text-primary-fg"
                     : "max-w-[94%] rounded-2xl rounded-bl-md bg-surface px-3.5 py-2.5 text-sm leading-relaxed shadow-[var(--shadow-border)]"
                 }
               >
@@ -303,7 +327,7 @@ export function AdvisorChat({ month }: { month: string }) {
             <div className="flex justify-start">
               <div className="flex items-center gap-2 rounded-2xl rounded-bl-md bg-surface px-3.5 py-2.5 text-xs text-muted shadow-[var(--shadow-border)]">
                 <Sparkles className="size-3.5 animate-pulse text-primary" />
-                Analisando seus dados…
+                Analisando seu mês…
               </div>
             </div>
           ) : null}
@@ -311,7 +335,7 @@ export function AdvisorChat({ month }: { month: string }) {
         </div>
       )}
 
-      {suggestions.length > 0 && !busy ? (
+      {aiEnabled && suggestions.length > 0 && !busy ? (
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
           {suggestions.map((suggestion) => (
             <button
@@ -326,14 +350,14 @@ export function AdvisorChat({ month }: { month: string }) {
         </div>
       ) : null}
 
-      {pendingAction && !busy ? (
+      {aiEnabled && pendingAction && !busy ? (
         <div className="mt-3 rounded-xl border border-primary/25 bg-primary-soft p-4 text-sm">
           <div className="flex items-start gap-3">
             <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-fg">
               {pendingAction.kind === "loan" ? <Landmark className="size-4" /> : <CalendarDays className="size-4" />}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium tracking-wide text-primary uppercase">Confirmar inclusão</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-primary">Confirmar inclusão</p>
               <h3 className="mt-0.5 font-medium">{pendingAction.title}</h3>
               <p className="mt-2 leading-relaxed text-muted">
                 {pendingAction.totalCount}x de {formatBRL(pendingAction.installmentAmount)} · total de {formatBRL(pendingAction.installmentAmount * pendingAction.totalCount)}
@@ -342,7 +366,9 @@ export function AdvisorChat({ month }: { month: string }) {
                 Início em {new Date(`${pendingAction.startDate}T12:00:00`).toLocaleDateString("pt-BR")}
                 {pendingAction.institution ? ` · ${pendingAction.institution}` : ` · ${pendingAction.merchant}`}
               </p>
-              {pendingAction.explanation ? <p className="mt-2 text-xs leading-relaxed text-primary">{pendingAction.explanation}</p> : null}
+              {pendingAction.explanation ? (
+                <p className="mt-2 text-xs leading-relaxed text-primary">{pendingAction.explanation}</p>
+              ) : null}
             </div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
@@ -365,7 +391,9 @@ export function AdvisorChat({ month }: { month: string }) {
                   account: pendingAction.institution,
                 });
                 setMessages((current): ChatMessage[] => [...current, {
-                  id: uid(), role: "assistant" as const, createdAt: new Date().toISOString(),
+                  id: uid(),
+                  role: "assistant" as const,
+                  createdAt: new Date().toISOString(),
                   text: `${pendingAction.title} foi incluído em Empréstimos e nas despesas futuras: ${pendingAction.totalCount}x de ${formatBRL(pendingAction.installmentAmount)}.`,
                 }].slice(-30));
                 setPendingAction(null);
@@ -379,23 +407,25 @@ export function AdvisorChat({ month }: { month: string }) {
         </div>
       ) : null}
 
-      <form
-        className="mt-4 flex gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void ask(draft);
-        }}
-      >
-        <input
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Pergunte sobre seus gastos, caixa ou próximos meses…"
-          className="h-11 min-w-0 flex-1 rounded-lg bg-surface px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
-        />
-        <Button type="submit" size="icon" disabled={!draft.trim() || busy} aria-label="Enviar pergunta">
-          <Send className="size-4" />
-        </Button>
-      </form>
+      {aiEnabled ? (
+        <form
+          className="mt-4 flex gap-2 rounded-xl bg-surface p-2 shadow-[var(--shadow-border)]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void ask(draft);
+          }}
+        >
+          <input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="Pergunte sobre seu dinheiro…"
+            className="h-10 min-w-0 flex-1 bg-transparent px-2 text-sm outline-none"
+          />
+          <Button type="submit" size="icon" disabled={!draft.trim() || busy} aria-label="Enviar pergunta">
+            <Send className="size-4" />
+          </Button>
+        </form>
+      ) : null}
     </section>
   );
 }

@@ -1,21 +1,21 @@
 import { useEffect } from "react";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { Home, Receipt, ScanLine, Sparkles, Users } from "lucide-react";
+import { CalendarClock, Home, Plus, Receipt, Sparkles } from "lucide-react";
 import { Toaster } from "sonner";
 import { useFinanceStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const NAV: {
-  to: "/" | "/extrato" | "/captura" | "/conselhos" | "/casa";
+  to: "/" | "/extrato" | "/captura" | "/parcelas" | "/conselhos";
   label: string;
   icon: typeof Home;
   primary?: boolean;
 }[] = [
   { to: "/", label: "Início", icon: Home },
-  { to: "/extrato", label: "Extrato", icon: Receipt },
-  { to: "/captura", label: "Captura", icon: ScanLine, primary: true },
-  { to: "/conselhos", label: "Núcleo IA", icon: Sparkles },
-  { to: "/casa", label: "Casa", icon: Users },
+  { to: "/extrato", label: "Movimentos", icon: Receipt },
+  { to: "/captura", label: "Adicionar", icon: Plus, primary: true },
+  { to: "/parcelas", label: "Planejar", icon: CalendarClock },
+  { to: "/conselhos", label: "Núcleo", icon: Sparkles },
 ];
 
 export function AppShell() {
@@ -38,7 +38,7 @@ export function AppShell() {
   return (
     <div className="min-h-dvh overflow-x-hidden bg-bg text-fg">
       <div className="relative mx-auto flex min-h-dvh w-full max-w-[430px] flex-col overflow-x-hidden bg-surface shadow-[var(--shadow-border)]">
-        <div className="flex min-h-0 flex-1 flex-col pb-[calc(4.75rem+env(safe-area-inset-bottom))]">
+        <div className="flex min-h-0 flex-1 flex-col pb-[calc(5rem+env(safe-area-inset-bottom))]">
           <Outlet />
         </div>
 
@@ -55,8 +55,9 @@ export function AppShell() {
                   <Link
                     to={item.to}
                     aria-current={active ? "page" : undefined}
+                    aria-label={item.primary ? "Adicionar movimentação" : item.label}
                     className={cn(
-                      "flex min-h-12 w-full flex-col items-center justify-center gap-0.5 rounded-md text-[11px] font-medium transition-colors duration-150",
+                      "flex min-h-12 w-full flex-col items-center justify-center gap-0.5 rounded-md text-[10px] font-medium transition-colors duration-150",
                       item.primary ? "relative -top-3" : active ? "text-primary" : "text-muted",
                     )}
                   >
@@ -67,7 +68,7 @@ export function AppShell() {
                           active ? "bg-primary text-primary-fg" : "bg-ink text-primary-fg",
                         )}
                       >
-                        <Icon className="size-5" strokeWidth={1.75} />
+                        <Icon className="size-5" strokeWidth={2} />
                       </span>
                     ) : (
                       <Icon className="size-5" strokeWidth={active ? 2.2 : 1.75} />

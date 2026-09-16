@@ -2,7 +2,7 @@ import { AlertTriangle, CheckCircle2, CreditCard, Clock3 } from "lucide-react";
 import { cashPositionForMonth } from "@/lib/cash-position";
 import { countsInBudget } from "@/lib/movement-nature";
 import { useDocumentStore } from "@/lib/document-store";
-import { formatBRL, formatShortDate } from "@/lib/money";
+import { formatBRL, formatBRLCompact, formatShortDate } from "@/lib/money";
 import { monthTransactions } from "@/lib/selectors";
 import { useFinanceStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -33,7 +33,7 @@ function canonical(value: string | undefined) {
 function statusInfo(status: "paid" | "open" | "future" | undefined) {
   if (status === "paid") return { label: "Paga", icon: CheckCircle2, cls: "text-primary bg-primary-soft" };
   if (status === "open") return { label: "Em aberto", icon: AlertTriangle, cls: "text-danger bg-danger-soft" };
-  if (status === "future") return { label: "Vence depois", icon: Clock3, cls: "text-warn bg-warn-soft" };
+  if (status === "future") return { label: "Depois", icon: Clock3, cls: "text-warn bg-warn-soft" };
   return { label: "Sem status", icon: Clock3, cls: "text-muted bg-line" };
 }
 
@@ -90,64 +90,73 @@ export function CardsOverviewCard() {
 
   if (cards.length === 0) return null;
 
+  const openTotal = cards
+    .filter((card) => card.status === "open")
+    .reduce((sum, card) => sum + (card.total ?? 0), 0);
+
   return (
-    <section className="mt-5 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
-      <div className="flex items-start gap-3">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary-soft text-primary">
-          <CreditCard className="size-5" />
+    <section className="mt-4 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+      <div className="flex items-center gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary">
+          <CreditCard className="size-4" />
         </span>
-        <div>
-          <p className="text-xs font-medium tracking-wide text-muted uppercase">Cartões</p>
-          <h2 className="font-display text-xl">Faturas e competência</h2>
-          <p className="mt-1 text-xs leading-relaxed text-muted">
-            O gasto acompanha a competência da fatura; o status mostra se ela já foi paga ou ainda pesa no caixa.
-          </p>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted">Cartões</p>
+          <div className="mt-0.5 flex items-baseline justify-between gap-3">
+            <h2 className="font-display text-xl">Faturas acompanhadas</h2>
+            <p className="shrink-0 font-display text-lg tabular-nums">
+              {openTotal > 0 ? formatBRL(openTotal) : "—"}
+            </p>
+          </div>
         </div>
       </div>
 
-      <div className="mt-4 flex flex-col gap-2">
+      <div className="mt-3 divide-y divide-line rounded-xl bg-surface px-3 shadow-[var(--shadow-border)]">
         {cards.map((card) => {
           const info = statusInfo(card.status);
           const Icon = info.icon;
+          const dateLabel =
+            card.status === "paid" && card.paymentDate
+              ? `Pago ${formatShortDate(card.paymentDate)}`
+              : card.dueDate
+                ? `Vence ${formatShortDate(card.dueDate)}`
+                : "Data não identificada";
+
           return (
-            <article key={card.key} className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">Cartão {card.institution}</p>
-                  <p className="mt-0.5 text-xs text-muted">
-                    {card.count} lançamento{card.count === 1 ? "" : "s"} na competência
+            <article key={card.key} className="py-3">
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-medium">Cartão {card.institution}</p>
+                    <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium", info.cls)}>
+                      <Icon className="size-3" />
+                      {info.label}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-muted">
+                    {dateLabel} · {card.count} lançamento{card.count === 1 ? "" : "s"}
                   </p>
                 </div>
-                <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-medium", info.cls)}>
-                  <Icon className="size-3" />
-                  {info.label}
-                </span>
+                <p className="shrink-0 font-display text-sm tabular-nums">
+                  {card.total === null ? formatBRLCompact(card.spent) : formatBRL(card.total)}
+                </p>
               </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <div className="rounded-md bg-elevated px-3 py-2">
-                  <p className="text-[10px] text-muted">Classificado no cartão</p>
-                  <p className="mt-0.5 font-display text-lg tabular-nums">
-                    {formatBRL(card.spent)}
-                  </p>
+              <details className="mt-2">
+                <summary className="cursor-pointer text-[10px] font-medium text-muted">Ver composição</summary>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div className="rounded-lg bg-elevated px-3 py-2">
+                    <p className="text-[10px] text-muted">Classificado</p>
+                    <p className="mt-0.5 font-display text-sm tabular-nums">{formatBRL(card.spent)}</p>
+                  </div>
+                  <div className="rounded-lg bg-elevated px-3 py-2">
+                    <p className="text-[10px] text-muted">Fatura oficial</p>
+                    <p className="mt-0.5 font-display text-sm tabular-nums">
+                      {card.total === null ? "—" : formatBRL(card.total)}
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-md bg-elevated px-3 py-2">
-                  <p className="text-[10px] text-muted">Fatura oficial</p>
-                  <p className="mt-0.5 font-display text-lg tabular-nums">
-                    {card.total === null ? "—" : formatBRL(card.total)}
-                  </p>
-                </div>
-                <div className="col-span-2 rounded-md bg-elevated px-3 py-2">
-                  <p className="text-[10px] text-muted">{card.status === "paid" ? "Pagamento" : "Vencimento"}</p>
-                  <p className="mt-0.5 text-sm font-medium">
-                    {card.status === "paid" && card.paymentDate
-                      ? formatShortDate(card.paymentDate)
-                      : card.dueDate
-                        ? formatShortDate(card.dueDate)
-                        : "Não identificado"}
-                  </p>
-                </div>
-              </div>
+              </details>
             </article>
           );
         })}

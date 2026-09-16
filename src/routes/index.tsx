@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowDownRight, ArrowUpRight, CalendarClock, Sparkles } from "lucide-react";
+import { CalendarClock } from "lucide-react";
 import { CashFlowForecastCard } from "@/components/cash-flow-forecast-card";
 import { CashPositionCard } from "@/components/cash-position-card";
+import { HomeCockpit } from "@/components/home-cockpit";
 import { MonthChangeCard } from "@/components/month-change-card";
 import { MonthHeader } from "@/components/month-header";
 import { MonthlySimulationCard } from "@/components/monthly-simulation-card";
@@ -13,7 +14,6 @@ import { categoryLabel } from "@/lib/categories";
 import { formatBRL, formatBRLCompact, formatShortDate } from "@/lib/money";
 import { recurringExpenses, recurringMonthlyTotal } from "@/lib/recurring";
 import {
-  budgetUsage,
   committedFuture,
   dailySpend,
   monthTransactions,
@@ -42,16 +42,14 @@ function Home() {
   const committed = committedFuture(state, todayIso());
   const recurring = recurringExpenses(state, 5);
   const recurringTotal = recurringMonthlyTotal(recurring);
-  const budgets = budgetUsage(state, month).filter((b) => b.used > 0).slice(0, 4);
   const recent = [...rows]
     .filter((t) => t.type === "expense")
     .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 5);
-  const overBudget = budgets.filter((b) => b.ratio > 1);
+    .slice(0, 4);
   const [editing, setEditing] = useState<Transaction | null>(null);
 
   return (
-    <main className="stagger-in flex flex-col gap-5 pb-6">
+    <main className="stagger-in flex flex-col gap-4 pb-6">
       <MonthHeader month={month} onChange={setMonth} kicker={state.householdName} />
 
       {state.demo ? (
@@ -60,46 +58,48 @@ function Home() {
         </p>
       ) : null}
 
+      <HomeCockpit month={month} />
+
       <TodayBriefCard month={month} />
 
-      <section className="mx-5 rounded-xl bg-primary px-5 py-5 text-primary-fg">
-        <p className="text-xs font-medium tracking-wide text-primary-fg/70 uppercase">Resultado do mês</p>
-        <p className="mt-1 font-display text-4xl tabular-nums tracking-tight">{formatBRL(totals.balance)}</p>
-        <p className="mt-1 text-xs leading-relaxed text-primary-fg/70">
-          Entradas menos gastos do orçamento. Este valor não é o saldo que ficou nas suas contas.
-        </p>
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <Link
-            to="/extrato"
-            search={{ type: "income" }}
-            className="rounded-md bg-primary-fg/10 px-3 py-2 transition-colors active:bg-primary-fg/20"
-          >
-            <p className="flex items-center gap-1 text-[11px] text-primary-fg/70">
-              <ArrowUpRight className="size-3" /> Entradas
-            </p>
-            <p className="font-display text-lg tabular-nums">{formatBRLCompact(totals.income)}</p>
-          </Link>
-          <Link
-            to="/extrato"
-            search={{ type: "expense" }}
-            className="rounded-md bg-primary-fg/10 px-3 py-2 transition-colors active:bg-primary-fg/20"
-          >
-            <p className="flex items-center gap-1 text-[11px] text-primary-fg/70">
-              <ArrowDownRight className="size-3" /> Saídas
-            </p>
-            <p className="font-display text-lg tabular-nums">{formatBRLCompact(totals.expense)}</p>
-          </Link>
-        </div>
-      </section>
+      <CashPositionCard month={month} />
 
       <MonthlySimulationCard month={month} />
 
-      <CashPositionCard month={month} />
-      <MonthChangeCard month={month} />
+      <section className="px-5">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-display text-xl">Recentes</h2>
+          <Link to="/extrato" className="text-sm font-medium text-primary">
+            Extrato
+          </Link>
+        </div>
+        <ul className="divide-y divide-line rounded-xl bg-elevated px-4 shadow-[var(--shadow-border)]">
+          {recent.map((t) => {
+            const person = state.people.find((p) => p.id === t.personId);
+            return (
+              <li key={t.id}>
+                <button
+                  className="flex w-full items-center gap-3 py-3 text-left"
+                  onClick={() => setEditing(t)}
+                >
+                  {person ? <PersonAvatar person={person} size="sm" /> : null}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{t.merchant}</span>
+                    <span className="block text-xs text-muted">
+                      {categoryLabel(t.category, state.customCategories)} · {formatShortDate(t.date)}
+                    </span>
+                  </span>
+                  <span className="font-display tabular-nums">−{formatBRL(t.amount)}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
 
       <section className="px-5">
         <p className="mb-2 text-xs font-medium text-muted">Ritmo do mês</p>
-        <div className="flex h-16 items-end gap-0.5">
+        <div className="flex h-12 items-end gap-0.5">
           {days.map((v, i) => (
             <div
               key={i}
@@ -124,7 +124,7 @@ function Home() {
               key={person.id}
               to="/extrato"
               search={{ person: person.id, type: "expense" }}
-              className="min-w-[118px] rounded-xl bg-elevated px-3 py-3 shadow-[var(--shadow-border)] transition-transform active:scale-[0.98]"
+              className="min-w-[108px] rounded-xl bg-elevated px-3 py-2.5 shadow-[var(--shadow-border)] transition-transform active:scale-[0.98]"
             >
               <PersonAvatar person={person} />
               <p className="mt-2 text-sm font-medium">{person.name}</p>
@@ -135,9 +135,14 @@ function Home() {
       </section>
 
       <section className="px-5">
-        <h2 className="mb-3 font-display text-xl">Categorias</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-display text-xl">Categorias</h2>
+          <Link to="/extrato" search={{ type: "expense" }} className="text-sm font-medium text-primary">
+            Ver todas
+          </Link>
+        </div>
         <ul className="flex flex-col gap-3">
-          {cats.map((c) => {
+          {cats.slice(0, 5).map((c) => {
             const max = cats[0]?.amount || 1;
             const budget = state.budgets.find((b) => b.category === c.category);
             const over = budget ? c.amount > budget.monthlyLimit : false;
@@ -167,6 +172,8 @@ function Home() {
           })}
         </ul>
       </section>
+
+      <MonthChangeCard month={month} />
 
       <CashFlowForecastCard />
 
@@ -231,55 +238,7 @@ function Home() {
         </section>
       ) : null}
 
-      <section className="mx-5">
-        <Link
-          to="/conselhos"
-          className="flex items-center gap-3 rounded-xl bg-primary-soft px-4 py-4 text-primary"
-        >
-          <span className="flex size-10 items-center justify-center rounded-md bg-elevated">
-            <Sparkles className="size-4" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block font-medium">Consultor financeiro</span>
-            <span className="block text-sm text-primary/80">
-              {overBudget.length
-                ? `${overBudget.length} categoria${overBudget.length > 1 ? "s" : ""} acima do teto · veja seu plano`
-                : "Raio-X, prioridades e meta real para o mês"}
-            </span>
-          </span>
-        </Link>
-      </section>
 
-      <section className="px-5">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-display text-xl">Recentes</h2>
-          <Link to="/extrato" className="text-sm font-medium text-primary">
-            Extrato
-          </Link>
-        </div>
-        <ul className="divide-y divide-line rounded-xl bg-elevated px-4 shadow-[var(--shadow-border)]">
-          {recent.map((t) => {
-            const person = state.people.find((p) => p.id === t.personId);
-            return (
-              <li key={t.id}>
-                <button
-                  className="flex w-full items-center gap-3 py-3 text-left"
-                  onClick={() => setEditing(t)}
-                >
-                  {person ? <PersonAvatar person={person} size="sm" /> : null}
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{t.merchant}</span>
-                    <span className="block text-xs text-muted">
-                      {categoryLabel(t.category, state.customCategories)} · {formatShortDate(t.date)}
-                    </span>
-                  </span>
-                  <span className="font-display tabular-nums">−{formatBRL(t.amount)}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
 
       {editing && state.transactions.some((t) => t.id === editing.id) ? (
         <TransactionEdit tx={editing} onClose={() => setEditing(null)} />

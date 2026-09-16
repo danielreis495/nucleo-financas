@@ -692,3 +692,118 @@ Quando houver uma ação completa e pronta para confirmação, use:
     return { ok: false, error: "A resposta do Núcleo IA veio incompleta. Tente novamente." };
   }
 }
+
+
+export type TransactionInsightPayload = {
+  apiKey?: string;
+  transaction: {
+    merchant: string;
+    description: string;
+    amount: number;
+    date: string;
+    type: TxType;
+    nature: TxNature;
+    category: CategoryId;
+    originLabel?: string;
+    originInstitution?: string;
+    originKind?: string;
+    paymentMethod?: string;
+    installmentIndex?: number | null;
+    installmentTotal?: number | null;
+  };
+  similarTransactions: {
+    merchant: string;
+    amount: number;
+    date: string;
+    type: TxType;
+    nature: TxNature;
+    category: CategoryId;
+  }[];
+  categories: { id: CategoryId; label: string; group: "gasto" | "entrada" }[];
+};
+
+export type TransactionInsight = {
+  summary: string;
+  reason: string;
+  suggestedCategory: CategoryId | null;
+  suggestedType: TxType | null;
+  suggestedNature: TxNature | null;
+};
+
+export async function analyzeTransactionWithGemini(
+  data: TransactionInsightPayload,
+): Promise<{ ok: true; insight: TransactionInsight } | { ok: false; error: string }> {
+  const apiKey = (data.apiKey ?? "").trim();
+  if (!apiKey) {
+    return { ok: false, error: "Ative a conversa com IA em Configurações para analisar este movimento." };
+  }
+
+  const allowedCategoryIds = new Set(data.categories.map((item) => item.id));
+  const system = `Você é o Núcleo IA, um assistente financeiro pessoal em português do Brasil.
+Analise UM lançamento financeiro e ajude o usuário a classificá-lo corretamente.
+Use somente os fatos enviados. Histórico de lançamentos semelhantes é evidência útil, mas não obrigatória.
+Não invente estabelecimento, finalidade, conta, pessoa ou pagamento.
+Diferencie:
+- budget: gasto/renda real do orçamento.
+- transfer: transferência entre contas próprias ou pessoas da própria casa.
+- investment: aplicação ou resgate.
+- card_payment: pagamento de fatura.
+- financing: empréstimo/crédito contratado, não renda.
+- neutral: totalizador/saldo/linha técnica.
+Se a classificação atual parecer correta, não force mudança.
+Sugira no máximo uma categoria, um tipo e uma natureza.
+Responda de forma direta, como um assistente financeiro que explica o motivo da sugestão.
+
+Responda APENAS JSON válido:
+{"summary":"1 frase curta sobre o lançamento","reason":"1-3 frases objetivas","suggestedCategory":"id ou null","suggestedType":"expense|income|null","suggestedNature":"budget|transfer|investment|card_payment|financing|neutral|null"}`;
+
+  const result = await geminiGenerate(apiKey, {
+    system,
+    text: JSON.stringify({
+      transaction: data.transaction,
+      similarTransactions: data.similarTransactions.slice(0, 8),
+      availableCategories: data.categories,
+    }),
+    maxTokens: 900,
+  });
+  if (!result.ok) return result;
+
+  try {
+    const parsed = parseJsonObject(result.text) as Record<string, unknown>;
+    const rawCategory = parsed.suggestedCategory == null ? null : String(parsed.suggestedCategory);
+    const rawType = parsed.suggestedType;
+    const rawNature = parsed.suggestedNature;
+
+    const suggestedCategory =
+      rawCategory && allowedCategoryIds.has(rawCategory) && rawCategory !== data.transaction.category
+        ? rawCategory
+        : null;
+    const suggestedType =
+      (rawType === "expense" || rawType === "income") && rawType !== data.transaction.type
+        ? rawType
+        : null;
+    const suggestedNature =
+      (rawNature === "budget" ||
+        rawNature === "transfer" ||
+        rawNature === "investment" ||
+        rawNature === "card_payment" ||
+        rawNature === "financing" ||
+        rawNature === "neutral") &&
+      rawNature !== data.transaction.nature
+        ? rawNature
+        : null;
+
+    return {
+      ok: true,
+      insight: {
+        summary: String(parsed.summary ?? "Classificação revisada.").trim(),
+        reason: String(parsed.reason ?? "Não encontrei motivo suficiente para alterar este lançamento.").trim(),
+        suggestedCategory,
+        suggestedType,
+        suggestedNature,
+      },
+    };
+  } catch {
+    return { ok: false, error: "Não consegui interpretar a análise deste movimento." };
+  }
+}

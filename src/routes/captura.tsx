@@ -76,6 +76,7 @@ function CapturaPage() {
   const [source, setSource] = useState<TxSource>("photo");
   const [quick, setQuick] = useState(false);
   const [digits, setDigits] = useState("");
+  const [description, setDescription] = useState("");
   const [category, setCategory] = useState<CategoryId>("mercado");
   const [personId, setPersonId] = useState(people[0]?.id ?? "");
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -342,63 +343,87 @@ function CapturaPage() {
 
   if (quick) {
     return (
-      <main className="flex flex-1 flex-col px-5 pt-6">
-        <p className="text-xs font-medium tracking-wide text-muted uppercase">Gasto rápido</p>
-        <h1 className="font-display text-3xl tracking-tight">Só o valor</h1>
-        <p className="mt-6 font-display text-5xl tabular-nums tracking-tight">{formatBRL(amount)}</p>
+      <main className="flex flex-1 flex-col px-5 pb-4 pt-5">
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">Lançamento manual</p>
+          <h1 className="font-display text-3xl tracking-tight">Novo gasto</h1>
+          <p className="mt-1 text-sm text-muted">Registre o essencial agora. Os detalhes podem ser ajustados depois.</p>
+        </div>
 
-        <p className="mt-6 mb-2 text-xs font-medium text-muted">Categoria</p>
+        <section className="mt-4 rounded-2xl bg-primary px-5 py-5 text-primary-fg shadow-[var(--shadow-border)]">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-primary-fg/65">Valor</p>
+          <p className="mt-1 font-display text-5xl tabular-nums tracking-tight">{formatBRL(amount)}</p>
+        </section>
+
+        <label className="mt-4 block text-xs font-medium text-muted">Descrição</label>
+        <input
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+          placeholder="Ex.: mercado, gasolina, almoço…"
+          className="mt-1 h-11 w-full rounded-xl bg-elevated px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
+        />
+
+        <p className="mb-2 mt-4 text-xs font-medium text-muted">Categoria</p>
         <CategoryPicker value={category} group="gasto" onChange={setCategory} />
 
-        <p className="mt-4 mb-2 text-xs font-medium text-muted">Quem</p>
-        <div className="flex flex-wrap gap-1.5">
-          {people.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setPersonId(p.id)}
-              className={cn(
-                "inline-flex h-9 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium",
-                personId === p.id ? "bg-primary text-primary-fg" : "bg-line",
-              )}
-            >
-              <PersonAvatar person={p} size="sm" />
-              {p.name}
-            </button>
-          ))}
-        </div>
+        <details className="group mt-4 rounded-xl bg-elevated shadow-[var(--shadow-border)]">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium">
+            Quem pagou e de qual conta
+          </summary>
+          <div className="border-t border-line px-4 pb-4 pt-3">
+            <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted">Quem</p>
+            <div className="flex flex-wrap gap-1.5">
+              {people.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPersonId(p.id)}
+                  className={cn(
+                    "inline-flex h-9 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium",
+                    personId === p.id ? "bg-primary text-primary-fg" : "bg-line",
+                  )}
+                >
+                  <PersonAvatar person={p} size="sm" />
+                  {p.name}
+                </button>
+              ))}
+            </div>
 
-        <p className="mt-4 mb-2 text-xs font-medium text-muted">Conta</p>
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            onClick={() => setAccountId(null)}
-            className={cn(
-              "h-9 rounded-full px-3 text-xs font-medium",
-              accountId === null ? "bg-primary text-primary-fg" : "bg-line",
-            )}
-          >
-            Sem conta
-          </button>
-          {accounts.filter((a) => a.active).map((account) => (
-            <button
-              key={account.id}
-              type="button"
-              onClick={() => setAccountId(account.id)}
-              className={cn(
-                "h-9 max-w-full truncate rounded-full px-3 text-xs font-medium",
-                accountId === account.id ? "bg-primary text-primary-fg" : "bg-line",
-              )}
-            >
-              {account.name}
-            </button>
-          ))}
-        </div>
+            <p className="mb-2 mt-4 text-[10px] font-medium uppercase tracking-wide text-muted">Conta</p>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setAccountId(null)}
+                className={cn(
+                  "h-9 rounded-full px-3 text-xs font-medium",
+                  accountId === null ? "bg-primary text-primary-fg" : "bg-line",
+                )}
+              >
+                Sem conta
+              </button>
+              {accounts.filter((a) => a.active).map((account) => (
+                <button
+                  key={account.id}
+                  type="button"
+                  onClick={() => setAccountId(account.id)}
+                  className={cn(
+                    "h-9 max-w-full truncate rounded-full px-3 text-xs font-medium",
+                    accountId === account.id ? "bg-primary text-primary-fg" : "bg-line",
+                  )}
+                >
+                  {account.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </details>
 
-        <div className="mt-6 grid grid-cols-3 gap-2">
+        <div className="mt-4 grid grid-cols-3 gap-2">
           {["1", "2", "3", "4", "5", "6", "7", "8", "9", "00", "0", "⌫"].map((key) => (
             <button
               key={key}
-              className="h-14 rounded-lg bg-elevated text-lg font-medium shadow-[var(--shadow-border)] active:scale-[0.96]"
+              type="button"
+              className="h-13 rounded-xl bg-elevated text-lg font-medium shadow-[var(--shadow-border)] active:scale-[0.96]"
               onClick={() => {
                 if (key === "⌫") setDigits((d) => d.slice(0, -1));
                 else setDigits((d) => (d + key).replace(/^0+/, "").slice(0, 8));
@@ -411,18 +436,25 @@ function CapturaPage() {
 
         <div className="mt-4 grid grid-cols-2 gap-2">
           <Button variant="secondary" onClick={() => setQuick(false)}>
-            Voltar
+            Cancelar
           </Button>
           <Button
             disabled={amount <= 0}
             onClick={() => {
-              addQuick({ amount, category, personId, accountId });
-              toast.success("Gasto lançado");
+              addQuick({
+                amount,
+                category,
+                personId,
+                accountId,
+                description: description.trim() || undefined,
+              });
+              toast.success("Gasto registrado");
               setDigits("");
-              void navigate({ to: "/" });
+              setDescription("");
+              void navigate({ to: "/extrato" });
             }}
           >
-            Lançar
+            Salvar gasto
           </Button>
         </div>
       </main>
@@ -430,12 +462,14 @@ function CapturaPage() {
   }
 
   return (
-    <main className="flex flex-1 flex-col px-5 pt-6 pb-4">
-      <p className="text-xs font-medium tracking-wide text-muted uppercase">Captura</p>
-      <h1 className="font-display text-3xl tracking-tight">Menos digitação</h1>
-      <p className="mt-2 max-w-[34ch] text-sm leading-relaxed text-muted">
-        Foto da nota, fatura em PDF ou planilha. O Núcleo lê compras, saldos, vencimentos e movimentações.
-      </p>
+    <main className="flex flex-1 flex-col px-5 pb-4 pt-5">
+      <div>
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">Adicionar</p>
+        <h1 className="font-display text-3xl tracking-tight">Como você quer registrar?</h1>
+        <p className="mt-2 max-w-[36ch] text-sm leading-relaxed text-muted">
+          Digite um gasto em segundos ou importe documentos para o Núcleo organizar os movimentos.
+        </p>
+      </div>
 
       <input
         ref={cameraRef}
@@ -462,52 +496,78 @@ function CapturaPage() {
 
       {busy ? (
         <div className="mt-10 flex flex-1 flex-col items-center justify-center gap-3 text-center">
-          <Loader2 className="size-8 animate-spin text-primary" />
+          <span className="flex size-14 items-center justify-center rounded-full bg-primary-soft text-primary">
+            <Loader2 className="size-6 animate-spin" />
+          </span>
           <p className="font-medium">{status}</p>
-          <p className="text-sm text-muted">Isso leva alguns segundos.</p>
+          <p className="max-w-[30ch] text-xs leading-relaxed text-muted">
+            O Núcleo tenta ler localmente primeiro e usa IA apenas quando o documento precisa de interpretação.
+          </p>
         </div>
       ) : (
-        <div className="mt-6 flex flex-col gap-2">
+        <div className="mt-5 flex flex-col gap-4">
           <button
-            onClick={() => cameraRef.current?.click()}
-            className="flex min-h-20 items-center gap-4 rounded-xl bg-primary px-4 py-4 text-left text-primary-fg"
+            type="button"
+            onClick={() => setQuick(true)}
+            className="flex min-h-24 items-center gap-4 rounded-2xl bg-primary px-5 py-5 text-left text-primary-fg shadow-[var(--shadow-border)] transition-transform active:scale-[0.99]"
           >
-            <span className="flex size-12 items-center justify-center rounded-lg bg-primary-fg/10">
-              <Camera className="size-5" />
+            <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary-fg/10">
+              <Keyboard className="size-5" />
             </span>
-            <span>
-              <span className="block font-medium">Fotografar nota</span>
-              <span className="block text-sm text-primary-fg/70">Cupom, boleto ou fatura</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11px] font-medium uppercase tracking-wide text-primary-fg/60">
+                Mais rápido
+              </span>
+              <span className="mt-0.5 block font-display text-xl">Registrar gasto</span>
+              <span className="mt-0.5 block text-sm text-primary-fg/70">
+                Valor, categoria e pronto
+              </span>
             </span>
           </button>
 
-          <div className="grid grid-cols-2 gap-2">
-            <ActionCard
-              icon={ImageIcon}
-              title="Galeria"
-              subtitle="Foto salva"
-              onClick={() => galleryRef.current?.click()}
-            />
-            <ActionCard
-              icon={FileText}
-              title="PDF"
-              subtitle="Fatura ou extrato"
-              onClick={() => fileRef.current?.click()}
-            />
-            <ActionCard
-              icon={FileSpreadsheet}
-              title="Planilha"
-              subtitle="CSV ou Excel"
-              onClick={() => fileRef.current?.click()}
-            />
-            <ActionCard icon={Keyboard} title="Valor rápido" subtitle="Só o teclado numérico" onClick={() => setQuick(true)} />
-          </div>
+          <section className="rounded-2xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted">Importar automaticamente</p>
+              <h2 className="mt-0.5 font-display text-xl">Documento ou foto</h2>
+              <p className="mt-1 text-xs leading-relaxed text-muted">
+                Para extratos, faturas, planilhas, boletos e comprovantes.
+              </p>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <ActionCard
+                icon={Camera}
+                title="Tirar foto"
+                subtitle="Usar a câmera"
+                onClick={() => cameraRef.current?.click()}
+              />
+              <ActionCard
+                icon={ImageIcon}
+                title="Galeria"
+                subtitle="Escolher imagem"
+                onClick={() => galleryRef.current?.click()}
+              />
+              <ActionCard
+                icon={FileText}
+                title="PDF"
+                subtitle="Extrato ou fatura"
+                onClick={() => fileRef.current?.click()}
+              />
+              <ActionCard
+                icon={FileSpreadsheet}
+                title="Planilha"
+                subtitle="CSV ou Excel"
+                onClick={() => fileRef.current?.click()}
+              />
+            </div>
+          </section>
 
           <button
+            type="button"
             onClick={loadSample}
-            className="mt-2 h-11 rounded-md text-sm font-medium text-primary"
+            className="h-10 text-xs font-medium text-primary"
           >
-            Ver exemplo de nota
+            Ver como funciona com um exemplo
           </button>
         </div>
       )}
@@ -528,13 +588,16 @@ function ActionCard({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="flex min-h-[5.5rem] flex-col items-start gap-2 rounded-xl bg-elevated px-4 py-3 text-left shadow-[var(--shadow-border)]"
+      className="flex min-h-[5.25rem] flex-col items-start gap-2 rounded-xl bg-surface px-3.5 py-3 text-left shadow-[var(--shadow-border)] transition-transform active:scale-[0.98]"
     >
-      <Icon className="size-4 text-primary" />
+      <span className="flex size-8 items-center justify-center rounded-full bg-primary-soft text-primary">
+        <Icon className="size-4" />
+      </span>
       <span>
         <span className="block text-sm font-medium">{title}</span>
-        <span className="block text-xs text-muted">{subtitle}</span>
+        <span className="block text-[11px] text-muted">{subtitle}</span>
       </span>
     </button>
   );

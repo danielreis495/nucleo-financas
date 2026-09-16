@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { ChevronDown, Database, Plus, ShieldCheck, Sparkles, Users, Wrench } from "lucide-react";
 import { PersonAvatar, personColorClass } from "@/components/person-avatar";
 import { AccountsCard } from "@/components/accounts-card";
 import { CardsOverviewCard } from "@/components/cards-overview-card";
@@ -122,202 +123,290 @@ function CasaPage() {
   const [name, setName] = useState("");
   const [role, setRole] = useState<PersonRole>("partner");
   const [color, setColor] = useState<PersonColor>("p2");
+  const [addingPerson, setAddingPerson] = useState(false);
   const restoreInput = useRef<HTMLInputElement>(null);
 
   return (
-    <main className="flex flex-col px-5 pt-6 pb-8">
-      <p className="text-xs font-medium tracking-wide text-muted uppercase">Casa</p>
-      <input
-        value={state.householdName}
-        onChange={(e) => setHouseholdName(e.target.value)}
-        className="font-display text-3xl tracking-tight bg-transparent outline-none"
-        aria-label="Nome da casa"
-      />
-      <p className="mt-1 text-sm text-muted">Quem entra no orçamento. Toque no nome da casa para mudar.</p>
+    <main className="flex flex-col px-5 pb-8 pt-5">
+      <div>
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">Configurações</p>
+        <h1 className="font-display text-3xl tracking-tight">Sua casa financeira</h1>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          Organize quem participa, quais contas você acompanha e como o Núcleo trabalha com seus dados.
+        </p>
+      </div>
+
+      <section className="mt-4 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-muted">Nome da casa</p>
+        <input
+          value={state.householdName}
+          onChange={(event) => setHouseholdName(event.target.value)}
+          className="mt-1 w-full bg-transparent font-display text-2xl tracking-tight outline-none"
+          aria-label="Nome da casa"
+        />
+        <p className="mt-1 text-xs text-muted">Toque no nome para editar.</p>
+      </section>
 
       <AccountsCard />
 
       <CardsOverviewCard />
 
-      <ul className="mt-5 flex flex-col gap-2">
-        {spent.map(({ person, amount }) => (
-          <li key={person.id} className="rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
-            <div className="flex items-center gap-3">
-              <PersonAvatar person={person} size="lg" />
-              <div className="min-w-0 flex-1">
-                <input
-                  value={person.name}
-                  onChange={(e) => updatePerson(person.id, { name: e.target.value })}
-                  className="w-full bg-transparent text-base font-medium outline-none"
-                />
-                <p className="text-xs text-muted">
-                  {ROLES.find((r) => r.id === person.role)?.label} · {formatBRL(amount)} este mês
-                </p>
-              </div>
-              {state.people.length > 1 ? (
-                <button className="text-xs text-muted hover:text-danger" onClick={() => removePerson(person.id)}>
-                  Remover
-                </button>
-              ) : null}
-            </div>
-            <div className="mt-3">
-              <p className="text-xs text-muted">Teto pessoal (opcional)</p>
-              <div className="mt-1 flex gap-1.5 overflow-x-auto">
-                {[null, 400, 800, 1500, 2500, 4000].map((n) => (
-                  <button
-                    key={String(n)}
-                    onClick={() => updatePerson(person.id, { monthlyBudget: n })}
-                    className={cn(
-                      "h-9 shrink-0 rounded-full px-3 text-xs font-medium",
-                      person.monthlyBudget === n ? "bg-primary text-primary-fg" : "bg-line",
-                    )}
-                  >
-                    {n === null ? "Sem teto" : formatBRLCompact(n)}
-                  </button>
-                ))}
-              </div>
-              {person.monthlyBudget ? (
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line">
-                  <div
-                    className={cn("h-full rounded-full", amount > person.monthlyBudget ? "bg-danger" : "bg-primary")}
-                    style={{ width: `${Math.min(100, (amount / person.monthlyBudget) * 100)}%` }}
+      <section className="mt-4 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+        <div className="flex items-center gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary">
+            <Users className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted">Pessoas</p>
+            <h2 className="font-display text-xl">Quem participa da casa</h2>
+          </div>
+          <button
+            type="button"
+            aria-label="Adicionar pessoa"
+            onClick={() => setAddingPerson((value) => !value)}
+            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-fg"
+          >
+            <Plus className={cn("size-4 transition-transform", addingPerson && "rotate-45")} />
+          </button>
+        </div>
+
+        <div className="mt-3 divide-y divide-line rounded-xl bg-surface px-3 shadow-[var(--shadow-border)]">
+          {spent.map(({ person, amount }) => (
+            <div key={person.id} className="py-3">
+              <div className="flex items-center gap-3">
+                <PersonAvatar person={person} size="lg" />
+                <div className="min-w-0 flex-1">
+                  <input
+                    value={person.name}
+                    onChange={(event) => updatePerson(person.id, { name: event.target.value })}
+                    className="w-full bg-transparent text-sm font-medium outline-none"
                   />
+                  <p className="text-[11px] text-muted">
+                    {ROLES.find((item) => item.id === person.role)?.label} · {formatBRL(amount)} este mês
+                  </p>
                 </div>
-              ) : null}
+                {state.people.length > 1 ? (
+                  <button
+                    type="button"
+                    className="text-[11px] font-medium text-danger"
+                    onClick={() => removePerson(person.id)}
+                  >
+                    Remover
+                  </button>
+                ) : null}
+              </div>
+
+              <details className="mt-2 pl-13">
+                <summary className="cursor-pointer text-[10px] font-medium text-muted">Limite pessoal</summary>
+                <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+                  {[null, 400, 800, 1500, 2500, 4000].map((value) => (
+                    <button
+                      key={String(value)}
+                      type="button"
+                      onClick={() => updatePerson(person.id, { monthlyBudget: value })}
+                      className={cn(
+                        "h-8 shrink-0 rounded-full px-3 text-xs font-medium",
+                        person.monthlyBudget === value ? "bg-primary text-primary-fg" : "bg-line",
+                      )}
+                    >
+                      {value === null ? "Sem teto" : formatBRLCompact(value)}
+                    </button>
+                  ))}
+                </div>
+                {person.monthlyBudget ? (
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line">
+                    <div
+                      className={cn(
+                        "h-full rounded-full",
+                        amount > person.monthlyBudget ? "bg-danger" : "bg-primary",
+                      )}
+                      style={{ width: `${Math.min(100, (amount / person.monthlyBudget) * 100)}%` }}
+                    />
+                  </div>
+                ) : null}
+              </details>
             </div>
-          </li>
-        ))}
-      </ul>
-
-      <section className="mt-6 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
-        <h2 className="font-display text-xl">Adicionar pessoa</h2>
-        <p className="mt-1 text-sm text-muted">Parceiro, filho, quem divide a casa.</p>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Nome"
-          className="mt-3 h-11 w-full rounded-md bg-surface px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
-        />
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {ROLES.map((r) => (
-            <button
-              key={r.id}
-              onClick={() => setRole(r.id)}
-              className={cn("h-9 rounded-full px-3 text-xs font-medium", role === r.id ? "bg-primary text-primary-fg" : "bg-line")}
-            >
-              {r.label}
-            </button>
           ))}
         </div>
-        <div className="mt-3 flex gap-2">
-          {COLORS.map((c) => (
-            <button
-              key={c}
-              aria-label={`Cor ${c}`}
-              onClick={() => setColor(c)}
-              className={cn("size-8 rounded-full", personColorClass(c), color === c ? "outline-2 outline-offset-2 outline-fg" : "")}
+
+        {addingPerson ? (
+          <div className="mt-3 rounded-xl bg-surface p-3 shadow-[var(--shadow-border)]">
+            <p className="text-sm font-medium">Nova pessoa</p>
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Nome"
+              className="mt-3 h-11 w-full rounded-xl bg-elevated px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
             />
-          ))}
-        </div>
-        <Button
-          className="mt-4 w-full"
-          disabled={!name.trim()}
-          onClick={() => {
-            addPerson({ name: name.trim(), role, color });
-            setName("");
-            toast.success("Pessoa adicionada");
-          }}
-        >
-          Incluir na casa
-        </Button>
+            <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
+              {ROLES.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setRole(item.id)}
+                  className={cn(
+                    "h-8 shrink-0 rounded-full px-3 text-xs font-medium",
+                    role === item.id ? "bg-primary text-primary-fg" : "bg-line",
+                  )}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 flex gap-2">
+              {COLORS.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  aria-label={`Cor ${item}`}
+                  onClick={() => setColor(item)}
+                  className={cn(
+                    "size-8 rounded-full",
+                    personColorClass(item),
+                    color === item ? "outline-2 outline-offset-2 outline-fg" : "",
+                  )}
+                />
+              ))}
+            </div>
+            <Button
+              className="mt-4 w-full"
+              disabled={!name.trim()}
+              onClick={() => {
+                addPerson({ name: name.trim(), role, color });
+                setName("");
+                setAddingPerson(false);
+                toast.success("Pessoa adicionada");
+              }}
+            >
+              Adicionar pessoa
+            </Button>
+          </div>
+        ) : null}
       </section>
-
-      <Link to="/conselhos" className="mt-4 flex h-12 items-center justify-center rounded-lg bg-primary-soft text-sm font-medium text-primary">
-        Ver conselhos de corte
-      </Link>
 
       <GeminiKeyCard />
 
-      <section className="mt-6 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
-        <h2 className="font-display text-xl">Corrigir importações</h2>
-        <p className="mt-1 text-sm text-muted">
-          Transferências entre suas contas, aplicações, resgates e pagamento de fatura ficam fora do orçamento. Você pode revisar o histórico atual ou fazer uma limpeza completa da camada financeira para reenviar os arquivos.
-        </p>
-        <div className="mt-4 flex flex-col gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => {
-              reclassifyMovements();
-              toast.success("Movimentações revisadas");
-            }}
-          >
-            Reclassificar histórico atual
-          </Button>
-          <Button
-            variant="secondary"
-            className="text-danger"
-            onClick={() => {
-              const ok = window.confirm(
-                "Apagar lançamentos, parcelamentos, saldos/faturas lidos e histórico de arquivos para reimportar? Pessoas, contas, categorias e chave do Gemini serão mantidas.",
-              );
-              if (!ok) return;
-              clearFinancialHistory();
-              clearSummaries();
-              localStorage.removeItem(IMPORT_FINGERPRINTS_KEY);
-              toast.success("Importações financeiras zeradas por completo. Você já pode reenviar os arquivos.");
-            }}
-          >
-            Limpar lançamentos para reimportar
-          </Button>
+      <section className="mt-4 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+        <div className="flex items-center gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary">
+            <ShieldCheck className="size-4" />
+          </span>
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted">Seus dados</p>
+            <h2 className="font-display text-xl">Backup e restauração</h2>
+          </div>
         </div>
-      </section>
-
-      <section className="mt-6 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
-        <h2 className="font-display text-xl">Segurança dos dados</h2>
-        <p className="mt-1 text-sm text-muted">
-          Seus dados financeiros atuais ficam neste aparelho. Faça um backup antes de trocar de celular ou de fazer mudanças importantes no app.
+        <p className="mt-2 text-xs leading-relaxed text-muted">
+          Os dados financeiros ficam neste aparelho. Faça um backup antes de trocar de celular ou fazer mudanças importantes.
         </p>
-        <div className="mt-4 grid grid-cols-2 gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2">
           <Button variant="secondary" onClick={downloadBackup}>Fazer backup</Button>
-          <Button variant="secondary" onClick={() => restoreInput.current?.click()}>Restaurar backup</Button>
+          <Button variant="secondary" onClick={() => restoreInput.current?.click()}>Restaurar</Button>
         </div>
         <input
           ref={restoreInput}
           type="file"
           accept="application/json,.json"
           className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            e.target.value = "";
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
             if (file) restoreBackup(file, state.geminiKey);
           }}
         />
-        <p className="mt-3 text-xs text-muted">O backup não inclui a chave do Gemini. Isso é intencional: segredos não devem viajar junto com seus dados.</p>
+        <p className="mt-2 text-[10px] leading-relaxed text-muted">
+          A chave do Gemini nunca entra no arquivo de backup.
+        </p>
       </section>
 
-      <div className="mt-8 flex flex-col gap-2">
-        <Button
-          variant="secondary"
-          onClick={() => {
-            resetDemo();
-            toast.success("Voltou o exemplo da família Almeida");
-          }}
-        >
-          Restaurar casa de exemplo
-        </Button>
-        <Button
-          variant="ghost"
-          className="text-danger"
-          onClick={() => {
-            clearAll();
-            clearSummaries();
-            localStorage.removeItem(IMPORT_FINGERPRINTS_KEY);
-            toast.success("Casa zerada");
-          }}
-        >
-          Começar do zero
-        </Button>
-      </div>
+      <details className="group mt-4 rounded-xl bg-elevated shadow-[var(--shadow-border)]">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3">
+          <span className="flex items-center gap-3">
+            <span className="flex size-9 items-center justify-center rounded-full bg-primary-soft text-primary">
+              <Wrench className="size-4" />
+            </span>
+            <span>
+              <span className="block text-sm font-medium">Manutenção dos dados</span>
+              <span className="block text-xs text-muted">Reclassificar ou reimportar movimentos</span>
+            </span>
+          </span>
+          <ChevronDown className="size-4 text-muted transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="border-t border-line px-4 pb-4 pt-3">
+          <p className="text-xs leading-relaxed text-muted">
+            Use estas opções somente quando transferências, aplicações, resgates ou pagamentos de fatura precisarem ser revistos.
+          </p>
+          <div className="mt-3 flex flex-col gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                reclassifyMovements();
+                toast.success("Movimentações revisadas");
+              }}
+            >
+              Reclassificar histórico atual
+            </Button>
+            <Button
+              variant="secondary"
+              className="text-danger"
+              onClick={() => {
+                const ok = window.confirm(
+                  "Apagar lançamentos, parcelamentos, saldos/faturas lidos e histórico de arquivos para reimportar? Pessoas, contas, categorias e chave do Gemini serão mantidas.",
+                );
+                if (!ok) return;
+                clearFinancialHistory();
+                clearSummaries();
+                localStorage.removeItem(IMPORT_FINGERPRINTS_KEY);
+                toast.success("Importações financeiras zeradas. Você já pode reenviar os arquivos.");
+              }}
+            >
+              Limpar histórico para reimportar
+            </Button>
+          </div>
+        </div>
+      </details>
+
+      <details className="group mt-3 rounded-xl bg-elevated shadow-[var(--shadow-border)]">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3">
+          <span className="flex items-center gap-3">
+            <span className="flex size-9 items-center justify-center rounded-full bg-danger-soft text-danger">
+              <Database className="size-4" />
+            </span>
+            <span>
+              <span className="block text-sm font-medium">Opções avançadas</span>
+              <span className="block text-xs text-muted">Exemplo e limpeza completa</span>
+            </span>
+          </span>
+          <ChevronDown className="size-4 text-muted transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="border-t border-line px-4 pb-4 pt-3">
+          <div className="flex flex-col gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                resetDemo();
+                toast.success("Voltou o exemplo da família Almeida");
+              }}
+            >
+              Restaurar casa de exemplo
+            </Button>
+            <Button
+              variant="ghost"
+              className="text-danger"
+              onClick={() => {
+                const ok = window.confirm("Apagar todos os dados desta casa e começar do zero?");
+                if (!ok) return;
+                clearAll();
+                clearSummaries();
+                localStorage.removeItem(IMPORT_FINGERPRINTS_KEY);
+                toast.success("Casa zerada");
+              }}
+            >
+              Começar do zero
+            </Button>
+          </div>
+        </div>
+      </details>
     </main>
   );
 }
@@ -329,25 +418,95 @@ function GeminiKeyCard() {
   const tail = saved.length > 6 ? saved.slice(-4) : "";
 
   return (
-    <section className="mt-6 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
-      <h2 className="font-display text-xl">Chave do Gemini</h2>
-      <p className="mt-1 text-sm text-muted">
-        Cole aqui, no app. Não precisa da Vercel. Pegue em{" "}
-        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="underline underline-offset-2">aistudio.google.com/apikey</a>.
-      </p>
-      {saved ? <p className="mt-3 text-sm text-primary">Salva · termina em {tail}</p> : <p className="mt-3 text-sm text-muted">Ainda não tem chave neste aparelho.</p>}
-      <input
-        type="password"
-        autoComplete="off"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        placeholder="AIza…"
-        className="mt-3 h-11 w-full rounded-md bg-surface px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
-      />
-      <div className="mt-3 flex gap-2">
-        <Button className="flex-1" disabled={!draft.trim()} onClick={() => { setGeminiKey(draft); setDraft(""); toast.success("Chave salva neste celular"); }}>Salvar</Button>
-        {saved ? <Button variant="ghost" className="text-danger" onClick={() => { setGeminiKey(""); setDraft(""); toast.success("Chave apagada"); }}>Apagar</Button> : null}
+    <section className="mt-4 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+      <div className="flex items-center gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary">
+          <Sparkles className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted">Núcleo IA</p>
+          <div className="mt-0.5 flex items-center justify-between gap-3">
+            <h2 className="font-display text-xl">Conversa com IA</h2>
+            <span className={cn(
+              "shrink-0 rounded-full px-2.5 py-1 text-[10px] font-medium",
+              saved ? "bg-primary-soft text-primary" : "bg-line text-muted",
+            )}>
+              {saved ? "Ativa" : "Opcional"}
+            </span>
+          </div>
+        </div>
       </div>
+
+      <p className="mt-2 text-xs leading-relaxed text-muted">
+        O Núcleo funciona normalmente sem chave. Ela só libera a conversa livre com seus dados e interpretações que precisem do Gemini.
+      </p>
+
+      {saved ? (
+        <div className="mt-3 flex items-center justify-between rounded-xl bg-primary-soft px-3 py-2.5 text-primary">
+          <div>
+            <p className="text-xs font-medium">Gemini conectado</p>
+            <p className="text-[10px] text-primary/75">Chave termina em {tail}</p>
+          </div>
+          <Link to="/conselhos" className="text-xs font-medium">Abrir Núcleo</Link>
+        </div>
+      ) : null}
+
+      <details className="group mt-3 rounded-xl bg-surface shadow-[var(--shadow-border)]" open={!saved}>
+        <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-medium">
+          {saved ? "Alterar configuração da IA" : "Ativar conversa com IA"}
+          <ChevronDown className="size-4 text-muted transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="border-t border-line px-3 pb-3 pt-3">
+          <p className="text-xs leading-relaxed text-muted">
+            Crie uma chave no Google AI Studio e cole somente neste aparelho.
+          </p>
+          <a
+            href="https://aistudio.google.com/apikey"
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 inline-flex text-xs font-medium text-primary underline underline-offset-2"
+          >
+            Abrir Google AI Studio
+          </a>
+          <input
+            type="password"
+            autoComplete="off"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="AIza…"
+            className="mt-3 h-11 w-full rounded-xl bg-elevated px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
+          />
+          <div className="mt-3 flex gap-2">
+            <Button
+              className="flex-1"
+              disabled={!draft.trim()}
+              onClick={() => {
+                setGeminiKey(draft.trim());
+                setDraft("");
+                toast.success("Conversa com IA ativada neste aparelho");
+              }}
+            >
+              {saved ? "Trocar chave" : "Ativar"}
+            </Button>
+            {saved ? (
+              <Button
+                variant="ghost"
+                className="text-danger"
+                onClick={() => {
+                  setGeminiKey("");
+                  setDraft("");
+                  toast.success("Conversa com IA desativada");
+                }}
+              >
+                Desativar
+              </Button>
+            ) : null}
+          </div>
+          <p className="mt-2 text-[10px] leading-relaxed text-muted">
+            A chave não entra no backup do Núcleo.
+          </p>
+        </div>
+      </details>
     </section>
   );
 }
