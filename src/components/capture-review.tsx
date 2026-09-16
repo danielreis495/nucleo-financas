@@ -95,17 +95,25 @@ export function CaptureReview({
 
   return (
     <div className="flex flex-1 flex-col">
-      <header className="px-5 pt-6 pb-3">
-        <p className="text-xs font-medium tracking-wide text-muted uppercase">Conferir e tocar</p>
-        <h1 className="font-display text-3xl tracking-tight">Encontrei {items.length}</h1>
-        <p className="mt-1 text-sm text-muted">
-          Confira o tipo financeiro. Transferências, investimentos e pagamento de fatura não entram como gasto ou renda.
-        </p>
+      <header className="px-5 pb-3 pt-5">
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">Conferência</p>
+        <div className="mt-0.5 flex items-end justify-between gap-3">
+          <div>
+            <h1 className="font-display text-3xl tracking-tight">Revise antes de salvar</h1>
+            <p className="mt-1 text-sm text-muted">
+              {items.length} encontrado{items.length === 1 ? "" : "s"} · {selectedCount} selecionado{selectedCount === 1 ? "" : "s"}
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted">{netLabel}</p>
+            <p className="font-display text-lg tabular-nums">{formatBRL(Math.abs(netOutflow))}</p>
+          </div>
+        </div>
 
         {officialBillTotal !== null ? (
           <div
             className={cn(
-              "mt-4 rounded-lg px-3 py-2.5 text-sm",
+              "mt-4 rounded-xl px-3 py-2.5 text-sm",
               billMatches ? "bg-primary-soft text-primary" : "bg-warn-soft text-warn",
             )}
           >
@@ -117,107 +125,107 @@ export function CaptureReview({
               )}
               <div>
                 <p className="font-medium">
-                  {billMatches ? "Fatura confere com o total oficial" : "A fatura ainda não fecha"}
+                  {billMatches ? "Total da fatura confere" : "A fatura precisa de revisão"}
                 </p>
                 <p className="mt-1 text-xs leading-relaxed opacity-90">
-                  Oficial: {formatBRL(officialBillTotal)} · Compras/créditos lidos: {formatBRL(Math.abs(billNetOutflow))}
+                  Oficial: {formatBRL(officialBillTotal)} · Lido: {formatBRL(Math.abs(billNetOutflow))}
                   {!billMatches && billDifference !== null
                     ? ` · diferença de ${formatBRL(Math.abs(billDifference))}`
                     : ""}
-                </p>
-                <p className="mt-1 text-[11px] leading-relaxed opacity-80">
-                  A conferência usa apenas compras e créditos que entram no orçamento. Transferências, pagamento de fatura e outros movimentos técnicos ficam fora desta conta.
                 </p>
               </div>
             </div>
           </div>
         ) : null}
 
-        {attentionCount > 0 ? (
-          <div className="mt-3 rounded-lg bg-warn-soft px-3 py-2.5 text-sm text-warn">
-            <p className="font-medium">
-              {attentionCount} {attentionCount === 1 ? "lançamento pede" : "lançamentos pedem"} uma olhada
-            </p>
-            <p className="mt-1 text-xs leading-relaxed opacity-90">
-              Marquei itens em “Outros” ou com favorecido não identificado para você localizar rápido antes de lançar.
-            </p>
+        {attentionCount > 0 || (duplicateSummary?.possibleCount ?? 0) > 0 ? (
+          <div className="mt-3 rounded-xl bg-warn-soft px-3 py-2.5 text-sm text-warn">
+            {attentionCount > 0 ? (
+              <p className="font-medium">
+                {attentionCount} {attentionCount === 1 ? "item precisa" : "itens precisam"} de revisão
+              </p>
+            ) : null}
+            {duplicateSummary && duplicateSummary.possibleCount > 0 ? (
+              <p className={cn("text-xs leading-relaxed", attentionCount > 0 && "mt-1")}>
+                {possibleLabel} {exactLabel}
+              </p>
+            ) : (
+              <p className="mt-1 text-xs leading-relaxed">
+                Itens em “Outros” ou sem favorecido claro estão destacados na lista.
+              </p>
+            )}
           </div>
         ) : null}
 
-        {duplicateSummary && duplicateSummary.possibleCount > 0 ? (
-          <div className="mt-3 rounded-lg bg-warn-soft px-3 py-2.5 text-sm text-warn">
-            <p className="font-medium">
-              {possibleLabel} {exactLabel}
-            </p>
-            <p className="mt-1 text-xs leading-relaxed opacity-90">
-              Revise antes de lançar. Você pode marcar novamente um item legítimo.
-            </p>
-          </div>
-        ) : null}
+        <details className="group mt-3 rounded-xl bg-elevated shadow-[var(--shadow-border)]">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium">
+            Origem e conta
+            <span className="ml-2 text-xs font-normal text-muted">
+              {importOrigin?.originLabel ?? "Não identificada"}
+            </span>
+          </summary>
 
-        <div className="mt-4 rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
-          <p className="text-xs font-medium text-muted">Origem dos lançamentos</p>
-          <p className="mt-1 text-sm font-medium">{importOrigin?.originLabel ?? "Não identificada"}</p>
-          <p className="mt-1 text-[11px] leading-relaxed text-muted">
-            Se o Núcleo identificar o cartão errado, corrija antes de lançar.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {(["Itaú", "Nubank"] as const).map((institution) => {
-              const selectedCard =
-                importOrigin?.originKind === "credit_card" &&
-                importOrigin.originInstitution === institution;
-              return (
+          <div className="border-t border-line px-4 pb-4 pt-3">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted">Origem</p>
+            <p className="mt-1 text-sm font-medium">{importOrigin?.originLabel ?? "Não identificada"}</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {(["Itaú", "Nubank"] as const).map((institution) => {
+                const selectedCard =
+                  importOrigin?.originKind === "credit_card" &&
+                  importOrigin.originInstitution === institution;
+                return (
+                  <button
+                    key={institution}
+                    type="button"
+                    onClick={() => {
+                      onAccountChange(null);
+                      onCardOriginChange(institution);
+                    }}
+                    className={cn(
+                      "h-8 rounded-full px-3 text-xs font-medium",
+                      selectedCard ? "bg-primary text-primary-fg" : "bg-line text-fg",
+                    )}
+                  >
+                    Cartão {institution}
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="mb-2 mt-4 text-[10px] font-medium uppercase tracking-wide text-muted">Conta</p>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => onAccountChange(null)}
+                className={cn(
+                  "h-8 rounded-full px-3 text-xs font-medium",
+                  accountId === null ? "bg-primary text-primary-fg" : "bg-line text-fg",
+                )}
+              >
+                Sem conta
+              </button>
+              {accounts.filter((a) => a.active).map((account) => (
                 <button
-                  key={institution}
+                  key={account.id}
                   type="button"
-                  onClick={() => {
-                    onAccountChange(null);
-                    onCardOriginChange(institution);
-                  }}
+                  onClick={() => onAccountChange(account.id)}
                   className={cn(
-                    "h-9 rounded-full px-3 text-xs font-medium",
-                    selectedCard ? "bg-primary text-primary-fg" : "bg-line text-fg",
+                    "h-8 max-w-full truncate rounded-full px-3 text-xs font-medium",
+                    accountId === account.id ? "bg-primary text-primary-fg" : "bg-line text-fg",
                   )}
                 >
-                  Cartão {institution}
+                  {account.name}
                 </button>
-              );
-            })}
+              ))}
+            </div>
+            {accounts.length === 0 ? (
+              <p className="mt-2 text-xs text-muted">Nenhuma conta cadastrada.</p>
+            ) : null}
           </div>
-        </div>
-
-        <p className="mt-4 mb-2 text-xs font-medium text-muted">Conta dos lançamentos</p>
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            onClick={() => onAccountChange(null)}
-            className={cn(
-              "h-9 rounded-full px-3 text-xs font-medium",
-              accountId === null ? "bg-primary text-primary-fg" : "bg-line text-fg",
-            )}
-          >
-            Sem conta
-          </button>
-          {accounts.filter((a) => a.active).map((account) => (
-            <button
-              key={account.id}
-              type="button"
-              onClick={() => onAccountChange(account.id)}
-              className={cn(
-                "h-9 max-w-full truncate rounded-full px-3 text-xs font-medium",
-                accountId === account.id ? "bg-primary text-primary-fg" : "bg-line text-fg",
-              )}
-            >
-              {account.name}
-            </button>
-          ))}
-        </div>
-        {accounts.length === 0 ? (
-          <p className="mt-2 text-xs text-muted">Cadastre uma conta em Casa para vincular a importação.</p>
-        ) : null}
+        </details>
       </header>
 
-      <ul className="flex flex-1 flex-col gap-2 overflow-y-auto px-4 pb-4">
+      <ul className="flex flex-1 flex-col gap-2 overflow-y-auto px-4 pb-4 pt-1">
         {items.map((item) => {
           const person = people.find((p) => p.id === item.personId) ?? people[0];
           const open = openId === item.id;
