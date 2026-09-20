@@ -42,14 +42,16 @@ export type AdvicePayload = {
   apiKey?: string;
 };
 
-type ChatInput = {
+export type ChatInput = {
   system: string;
   text: string;
   images?: ImagePart[];
   maxTokens: number;
 };
 
-type ChatResult = { ok: true; text: string } | { ok: false; error: string };
+export type ChatResult = { ok: true; text: string } | { ok: false; error: string };
+
+export type AiGenerate = (input: ChatInput) => Promise<ChatResult>;
 
 type ExtractResult = { ok: true; items: ExtractedItem[] } | { ok: false; error: string };
 
@@ -71,7 +73,7 @@ function asAmount(value: unknown) {
 function asDate(value: unknown, today: string) {
   const raw = String(value ?? "").trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  const br = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  const br = raw.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
   if (br) {
     const d = br[1].padStart(2, "0");
     const m = br[2].padStart(2, "0");
@@ -79,7 +81,7 @@ function asDate(value: unknown, today: string) {
     if (y < 100) y += 2000;
     return `${y}-${m}-${d}`;
   }
-  const dm = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})$/);
+  const dm = raw.match(/^(\d{1,2})[/\-.](\d{1,2})$/);
   if (dm) {
     const year = today.slice(0, 4);
     return `${year}-${dm[2].padStart(2, "0")}-${dm[1].padStart(2, "0")}`;
@@ -438,14 +440,14 @@ function splitStatementText(text: string, maxChars = 9000) {
 }
 
 async function extractOne(
-  apiKey: string,
+  generate: AiGenerate,
   system: string,
   text: string,
   data: ExtractPayload,
   images?: ImagePart[],
   maxTokens = 8192,
 ): Promise<ExtractResult> {
-  const result = await geminiGenerate(apiKey, { system, text, images, maxTokens });
+  const result = await generate({ system, text, images, maxTokens });
   if (!result.ok) return result;
   try {
     return { ok: true, items: parseExtractedItems(result.text, data) };
@@ -454,10 +456,7 @@ async function extractOne(
   }
 }
 
-export async function extractWithGemini(data: ExtractPayload): Promise<ExtractResult> {
-  const apiKey = (data.apiKey ?? "").trim();
-  if (!apiKey) return { ok: false, error: "Cole a chave do Gemini em Casa (abaixo das pessoas)." };
-
+export async function extractWithGenerator(data: ExtractPayload, generate: AiGenerate): Promise<ExtractResult> {
   const system = buildExtractionSystem(data);
   const sourceText = data.text ?? "";
   const bankStatement = Boolean(sourceText && looksLikeBankStatement(sourceText));
@@ -476,7 +475,7 @@ export async function extractWithGemini(data: ExtractPayload): Promise<ExtractRe
     const chunks = splitStatementText(statementText, 3800);
     const allItems: ExtractedItem[] = [];
     for (const chunk of chunks) {
-      const result = await extractOne(apiKey, system, `Documento:\n${chunk}`, data, undefined, 6000);
+      const result = await extractOne(generate, system, `Documento:\n${chunk}`, data, undefined, 6000);
       if (!result.ok) return result;
       allItems.push(...result.items);
     }
@@ -491,7 +490,7 @@ export async function extractWithGemini(data: ExtractPayload): Promise<ExtractRe
         const retryItems: ExtractedItem[] = [];
         for (const chunk of retryChunks) {
           const result = await extractOne(
-            apiKey,
+            generate,
             system,
             `Documento:\n${chunk}`,
             data,
@@ -517,7 +516,7 @@ export async function extractWithGemini(data: ExtractPayload): Promise<ExtractRe
   const text = statementText
     ? `Documento:\n${statementText.slice(0, 36000)}`
     : "Extraia os lançamentos destas imagens. Se for fatura, cada compra é um item.";
-  const single = await extractOne(apiKey, system, text, data, data.images, 8192);
+  const single = await extractOne(generate, system, text, data, data.images, 8192);
   if (single.ok) return single;
 
   // Extratos podem gerar JSON grande mesmo quando o texto total não ultrapassa
@@ -527,7 +526,7 @@ export async function extractWithGemini(data: ExtractPayload): Promise<ExtractRe
     if (chunks.length > 1) {
       const allItems: ExtractedItem[] = [];
       for (const chunk of chunks) {
-        const result = await extractOne(apiKey, system, `Documento:\n${chunk}`, data, undefined, 5000);
+        const result = await extractOne(generate, system, `Documento:\n${chunk}`, data, undefined, 5000);
         if (!result.ok) return result;
         allItems.push(...result.items);
       }
@@ -536,6 +535,12 @@ export async function extractWithGemini(data: ExtractPayload): Promise<ExtractRe
   }
 
   return single;
+}
+
+export async function extractWithGemini(data: ExtractPayload): Promise<ExtractResult> {
+  const apiKey = (data.apiKey ?? "").trim();
+  if (!apiKey) return { ok: false, error: "Cole a chave do Gemini em Casa (abaixo das pessoas)." };
+  return extractWithGenerator(data, (input) => geminiGenerate(apiKey, input));
 }
 
 export async function adviseWithGemini(data: AdvicePayload): Promise<

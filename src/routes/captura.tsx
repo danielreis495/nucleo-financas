@@ -56,7 +56,6 @@ function CapturaPage() {
   const people = useFinanceStore((s) => s.people);
   const accounts = useFinanceStore((s) => s.accounts ?? []);
   const transactions = useFinanceStore((s) => s.transactions);
-  const geminiKey = useFinanceStore((s) => s.geminiKey);
   const importExtracted = useFinanceStore((s) => s.importExtracted);
   const updateTransaction = useFinanceStore((s) => s.updateTransaction);
   const addQuick = useFinanceStore((s) => s.addQuickExpense);
@@ -233,14 +232,11 @@ function CapturaPage() {
         people: people.map((p) => ({ id: p.id, name: p.name, role: p.role })),
         defaultPersonId,
         today: todayIso(),
-        apiKey: geminiKey || undefined,
       };
       const result =
         localItems.length > 0
           ? ({ ok: true as const, items: localItems })
-          : geminiKey
-            ? await (await import("@/lib/gemini")).extractWithGemini(payload)
-            : await extractDocument({ data: payload });
+          : await extractDocument({ data: payload });
       if (!alive.current) return;
       if (!result.ok) {
         toast.error(result.error);
