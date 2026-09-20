@@ -55,6 +55,7 @@ function rememberImportedFingerprint(fingerprint: string | undefined) {
 function CapturaPage() {
   const people = useFinanceStore((s) => s.people);
   const accounts = useFinanceStore((s) => s.accounts ?? []);
+  const geminiKey = useFinanceStore((s) => s.geminiKey);
   const transactions = useFinanceStore((s) => s.transactions);
   const importExtracted = useFinanceStore((s) => s.importExtracted);
   const updateTransaction = useFinanceStore((s) => s.updateTransaction);
@@ -227,6 +228,7 @@ function CapturaPage() {
       }
 
       const payload = {
+        apiKey: geminiKey,
         text: prepared.text,
         images: prepared.images,
         people: people.map((p) => ({ id: p.id, name: p.name, role: p.role })),
