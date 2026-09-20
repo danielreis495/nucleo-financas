@@ -239,7 +239,7 @@ export async function geminiGenerate(apiKey: string, input: ChatInput): Promise<
       }
       if (!res.ok) {
         if (res.status === 400 || res.status === 403) {
-          return { ok: false, error: "Chave do Gemini recusada. Cole de novo em Casa, sem aspas nem espaço." };
+          return { ok: false, error: "A chave do Gemini configurada no servidor foi recusada." };
         }
         break;
       }
@@ -539,7 +539,7 @@ export async function extractWithGenerator(data: ExtractPayload, generate: AiGen
 
 export async function extractWithGemini(data: ExtractPayload): Promise<ExtractResult> {
   const apiKey = (data.apiKey ?? "").trim();
-  if (!apiKey) return { ok: false, error: "Cole a chave do Gemini em Casa (abaixo das pessoas)." };
+  if (!apiKey) return { ok: false, error: "A chave do Gemini ainda não foi configurada no servidor." };
   return extractWithGenerator(data, (input) => geminiGenerate(apiKey, input));
 }
 
@@ -548,7 +548,7 @@ export async function adviseWithGemini(data: AdvicePayload): Promise<
 > {
   const { apiKey: rawKey, ...facts } = data;
   const apiKey = (rawKey ?? "").trim();
-  if (!apiKey) return { ok: false, error: "Cole a chave do Gemini em Casa (abaixo das pessoas)." };
+  if (!apiKey) return { ok: false, error: "A chave do Gemini ainda não foi configurada no servidor." };
 
   const system = `Você é um conselheiro financeiro direto, em português do Brasil, para um orçamento doméstico.
 Sem moralismo, sem enrolação. Foque em cortes concretos e no peso das parcelas.
@@ -614,7 +614,7 @@ export async function askFinancialQuestionWithGemini(data: FinancialChatPayload)
 > {
   const apiKey = (data.apiKey ?? "").trim();
   if (!apiKey) {
-    return { ok: false, error: "Para conversar com o Núcleo IA, salve sua chave do Gemini em Casa." };
+    return { ok: false, error: "A chave do Gemini ainda não foi configurada no servidor." };
   }
 
   const system = `Você é o Núcleo IA, um assistente financeiro pessoal em português do Brasil.
@@ -740,7 +740,7 @@ export async function analyzeTransactionWithGemini(
 ): Promise<{ ok: true; insight: TransactionInsight } | { ok: false; error: string }> {
   const apiKey = (data.apiKey ?? "").trim();
   if (!apiKey) {
-    return { ok: false, error: "Ative a conversa com IA em Configurações para analisar este movimento." };
+    return { ok: false, error: "A chave do Gemini ainda não foi configurada no servidor." };
   }
 
   const allowedCategoryIds = new Set(data.categories.map((item) => item.id));

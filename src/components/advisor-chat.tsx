@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "@tanstack/react-router";
-import { Bot, CalendarDays, Check, Landmark, Send, Sparkles, Trash2, X } from "lucide-react";
+import { CalendarDays, Check, Landmark, Send, Sparkles, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { askFinancialQuestion } from "@/lib/ai";
 import { cashPositionForMonth } from "@/lib/cash-position";
 import { categoryLabel } from "@/lib/categories";
 import type { FinancialChatAction } from "@/lib/gemini";
@@ -199,12 +199,12 @@ export function AdvisorChat({ month }: { month: string }) {
     setMessages(nextMessages);
     setBusy(true);
     try {
-      const { askFinancialQuestionWithGemini } = await import("@/lib/gemini");
-      const result = await askFinancialQuestionWithGemini({
-        question,
-        context,
-        history: nextMessages.slice(-8).map((item) => ({ role: item.role, text: item.text })),
-        apiKey: state.geminiKey,
+      const result = await askFinancialQuestion({
+        data: {
+          question,
+          context,
+          history: nextMessages.slice(-8).map((item) => ({ role: item.role, text: item.text })),
+        },
       });
       if (!result.ok) {
         toast.error(result.error);
@@ -237,8 +237,6 @@ export function AdvisorChat({ month }: { month: string }) {
     }
   }
 
-  const aiEnabled = Boolean(state.geminiKey?.trim());
-
   return (
     <section className="mt-4 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
       <div className="flex items-start justify-between gap-3">
@@ -252,7 +250,7 @@ export function AdvisorChat({ month }: { month: string }) {
           </div>
         </div>
 
-        {aiEnabled && messages.length > 0 ? (
+        {messages.length > 0 ? (
           <button
             type="button"
             aria-label="Limpar conversa"
@@ -268,26 +266,12 @@ export function AdvisorChat({ month }: { month: string }) {
           </button>
         ) : (
           <span className="shrink-0 rounded-full bg-primary-soft px-2.5 py-1 text-[10px] font-medium text-primary">
-            IA opcional
+            IA ativa
           </span>
         )}
       </div>
 
-      {!aiEnabled ? (
-        <div className="mt-4 rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
-          <p className="text-sm font-medium">Seu Raio-X funciona sem chave de IA</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted">
-            Alertas, prioridades, caixa, projeções e orientação do mês continuam disponíveis normalmente.
-            A chave do Gemini só é necessária para conversar livremente com seus dados.
-          </p>
-          <Link
-            to="/casa"
-            className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary"
-          >
-            Ativar conversa com IA
-          </Link>
-        </div>
-      ) : messages.length === 0 ? (
+      {messages.length === 0 ? (
         <>
           <p className="mt-3 text-xs leading-relaxed text-muted">
             Pergunte em linguagem simples. O Núcleo usa seus lançamentos, contas, faturas, parcelas e previsões.
@@ -335,7 +319,7 @@ export function AdvisorChat({ month }: { month: string }) {
         </div>
       )}
 
-      {aiEnabled && suggestions.length > 0 && !busy ? (
+      {suggestions.length > 0 && !busy ? (
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
           {suggestions.map((suggestion) => (
             <button
@@ -350,7 +334,7 @@ export function AdvisorChat({ month }: { month: string }) {
         </div>
       ) : null}
 
-      {aiEnabled && pendingAction && !busy ? (
+      {pendingAction && !busy ? (
         <div className="mt-3 rounded-xl border border-primary/25 bg-primary-soft p-4 text-sm">
           <div className="flex items-start gap-3">
             <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-fg">
@@ -407,25 +391,23 @@ export function AdvisorChat({ month }: { month: string }) {
         </div>
       ) : null}
 
-      {aiEnabled ? (
-        <form
-          className="mt-4 flex gap-2 rounded-xl bg-surface p-2 shadow-[var(--shadow-border)]"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void ask(draft);
-          }}
-        >
-          <input
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Pergunte sobre seu dinheiro…"
-            className="h-10 min-w-0 flex-1 bg-transparent px-2 text-sm outline-none"
-          />
-          <Button type="submit" size="icon" disabled={!draft.trim() || busy} aria-label="Enviar pergunta">
-            <Send className="size-4" />
-          </Button>
-        </form>
-      ) : null}
+      <form
+        className="mt-4 flex gap-2 rounded-xl bg-surface p-2 shadow-[var(--shadow-border)]"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void ask(draft);
+        }}
+      >
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="Pergunte sobre seu dinheiro…"
+          className="h-10 min-w-0 flex-1 bg-transparent px-2 text-sm outline-none"
+        />
+        <Button type="submit" size="icon" disabled={!draft.trim() || busy} aria-label="Enviar pergunta">
+          <Send className="size-4" />
+        </Button>
+      </form>
     </section>
   );
 }
