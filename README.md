@@ -12,9 +12,9 @@ Quando terminar, a Vercel te dá um link (algo como `nucleo-financas.vercel.app`
 
 ### Leitura automática de documentos
 
-Para interpretar fotos e documentos no importador, configure `OPENAI_API_KEY` nas variáveis de ambiente da Vercel. Marque **Preview** para testar branches e **Production** para o app publicado. A chave é usada somente no servidor e nunca é enviada ao navegador.
+Para interpretar fotos e documentos no importador, crie uma chave no [Google AI Studio](https://aistudio.google.com/apikey). No Núcleo, abra **Casa**, cole a chave em **Conversa e documentos com IA** e toque em **Ativar**.
 
-O Gemini continua disponível como alternativa quando configurado. Sem um provedor de IA, o restante do app funciona normalmente (lançamento rápido, pessoas, parcelas e extrato).
+A chave fica salva no aparelho, não entra no backup e é enviada somente quando uma análise do Gemini for solicitada. Sem ela, o restante do app funciona normalmente (lançamento rápido, pessoas, parcelas e extrato).
 
 ## No celular
 
