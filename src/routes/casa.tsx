@@ -426,7 +426,7 @@ function GeminiKeyCard() {
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted">Núcleo IA</p>
           <div className="mt-0.5 flex items-center justify-between gap-3">
-            <h2 className="font-display text-xl">Conversa com IA</h2>
+            <h2 className="font-display text-xl">Conversa e documentos com IA</h2>
             <span className={cn(
               "shrink-0 rounded-full px-2.5 py-1 text-[10px] font-medium",
               saved ? "bg-primary-soft text-primary" : "bg-line text-muted",
@@ -438,7 +438,7 @@ function GeminiKeyCard() {
       </div>
 
       <p className="mt-2 text-xs leading-relaxed text-muted">
-        O Núcleo funciona normalmente sem chave. Ela só libera a conversa livre com seus dados e interpretações que precisem do Gemini.
+        O Núcleo funciona normalmente sem chave. Ela libera a conversa livre e a interpretação de fotos e documentos pelo Gemini.
       </p>
 
       {saved ? (
@@ -458,7 +458,7 @@ function GeminiKeyCard() {
         </summary>
         <div className="border-t border-line px-3 pb-3 pt-3">
           <p className="text-xs leading-relaxed text-muted">
-            Crie uma chave no Google AI Studio e cole somente neste aparelho.
+            Crie uma chave no Google AI Studio. Ela fica salva somente neste aparelho e é enviada quando uma análise do Gemini for solicitada.
           </p>
           <a
             href="https://aistudio.google.com/apikey"
@@ -483,7 +483,7 @@ function GeminiKeyCard() {
               onClick={() => {
                 setGeminiKey(draft.trim());
                 setDraft("");
-                toast.success("Conversa com IA ativada neste aparelho");
+                toast.success("Gemini ativado neste aparelho");
               }}
             >
               {saved ? "Trocar chave" : "Ativar"}
