@@ -5,6 +5,7 @@ import { CategoryPicker } from "@/components/category-picker";
 import { MovementKindPicker } from "@/components/movement-kind-picker";
 import { PersonAvatar } from "@/components/person-avatar";
 import { Button } from "@/components/ui/button";
+import { analyzeTransaction } from "@/lib/ai";
 import { categoriesFor, categoryLabel } from "@/lib/categories";
 import { rememberCategoryRule } from "@/lib/category-rules";
 import { rememberMerchantAlias } from "@/lib/merchant-aliases";
@@ -29,13 +30,11 @@ export function TransactionEdit({
   tx: Transaction;
   onClose: () => void;
 }) {
-  const state = useFinanceStore();
   const update = useFinanceStore((s) => s.updateTransaction);
   const people = useFinanceStore((s) => s.people);
   const accounts = useFinanceStore((s) => s.accounts ?? []);
   const transactions = useFinanceStore((s) => s.transactions);
   const customCategories = useFinanceStore((s) => s.customCategories);
-  const geminiKey = useFinanceStore((s) => s.geminiKey);
   const live = useFinanceStore((s) => s.transactions.find((item) => item.id === tx.id)) ?? tx;
 
   const [merchant, setMerchant] = useState(live.merchant);
@@ -51,7 +50,7 @@ export function TransactionEdit({
     setDate(live.date);
     setAmountText(formatEditAmount(live.amount));
     setInsight(null);
-  }, [live.id]);
+  }, [live.amount, live.date, live.description, live.id, live.merchant]);
 
   const availableCategories = useMemo(
     () => [
@@ -97,7 +96,7 @@ export function TransactionEdit({
   }
 
   async function analyzeMovement() {
-    if (!geminiKey.trim() || aiBusy) return;
+    if (aiBusy) return;
     setAiBusy(true);
     try {
       const normalizedMerchant = normalizeMerchant(merchant.trim() || live.merchant);
@@ -118,26 +117,26 @@ export function TransactionEdit({
           category: row.category,
         }));
 
-      const { analyzeTransactionWithGemini } = await import("@/lib/gemini");
-      const result = await analyzeTransactionWithGemini({
-        apiKey: geminiKey,
-        transaction: {
-          merchant: merchant.trim() || live.merchant,
-          description: description.trim() || live.description,
-          amount: parseLooseAmount(amountText) || live.amount,
-          date: date || live.date,
-          type: live.type,
-          nature: natureOf(live),
-          category: live.category,
-          originLabel: live.originLabel,
-          originInstitution: live.originInstitution,
-          originKind: live.originKind,
-          paymentMethod: live.paymentMethod,
-          installmentIndex: live.installmentIndex,
-          installmentTotal: live.installmentTotal,
+      const result = await analyzeTransaction({
+        data: {
+          transaction: {
+            merchant: merchant.trim() || live.merchant,
+            description: description.trim() || live.description,
+            amount: parseLooseAmount(amountText) || live.amount,
+            date: date || live.date,
+            type: live.type,
+            nature: natureOf(live),
+            category: live.category,
+            originLabel: live.originLabel,
+            originInstitution: live.originInstitution,
+            originKind: live.originKind,
+            paymentMethod: live.paymentMethod,
+            installmentIndex: live.installmentIndex,
+            installmentTotal: live.installmentTotal,
+          },
+          similarTransactions,
+          categories: availableCategories,
         },
-        similarTransactions,
-        categories: availableCategories,
       });
 
       if (!result.ok) {
@@ -216,18 +215,14 @@ export function TransactionEdit({
                 <p className="text-[10px] font-medium uppercase tracking-wide">Núcleo</p>
                 <p className="text-sm font-medium">Entender este movimento</p>
               </div>
-              {geminiKey.trim() ? (
-                <button
-                  type="button"
-                  disabled={aiBusy}
-                  onClick={() => void analyzeMovement()}
-                  className="shrink-0 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-fg disabled:opacity-60"
-                >
-                  {aiBusy ? "Analisando…" : insight ? "Analisar novamente" : "Analisar"}
-                </button>
-              ) : (
-                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium">IA opcional</span>
-              )}
+              <button
+                type="button"
+                disabled={aiBusy}
+                onClick={() => void analyzeMovement()}
+                className="shrink-0 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-fg disabled:opacity-60"
+              >
+                {aiBusy ? "Analisando…" : insight ? "Analisar novamente" : "Analisar"}
+              </button>
             </div>
 
             {insight ? (
@@ -262,9 +257,7 @@ export function TransactionEdit({
               </div>
             ) : (
               <p className="mt-2 text-xs leading-relaxed text-primary/75">
-                {geminiKey.trim()
-                  ? "O Núcleo compara este lançamento com origem, descrição e seu histórico para explicar ou sugerir uma correção."
-                  : "Mesmo sem IA, o Núcleo continua aprendendo correções de nomes e categorias feitas por você."}
+                O Núcleo compara este lançamento com origem, descrição e seu histórico para explicar ou sugerir uma correção.
               </p>
             )}
           </section>

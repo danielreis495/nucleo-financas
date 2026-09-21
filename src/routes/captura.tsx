@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Camera, FileSpreadsheet, FileText, ImageIcon, Keyboard, Loader2 } from "lucide-react";
@@ -25,6 +25,7 @@ import {
 } from "@/lib/transaction-origin";
 import type { CategoryId, ExtractedItem, FinancialDocumentSummary, TxSource } from "@/lib/types";
 import { cn, todayIso, uid } from "@/lib/utils";
+import { validateImportBatch } from "@/lib/import-batch";
 
 export const Route = createFileRoute("/captura")({ component: CapturaPage });
 
@@ -55,7 +56,6 @@ function CapturaPage() {
   const people = useFinanceStore((s) => s.people);
   const accounts = useFinanceStore((s) => s.accounts ?? []);
   const transactions = useFinanceStore((s) => s.transactions);
-  const geminiKey = useFinanceStore((s) => s.geminiKey);
   const importExtracted = useFinanceStore((s) => s.importExtracted);
   const updateTransaction = useFinanceStore((s) => s.updateTransaction);
   const addQuick = useFinanceStore((s) => s.addQuickExpense);
@@ -67,6 +67,16 @@ function CapturaPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [busy, setBusy] = useState(false);
+  const [batch, setBatch] = useState<{ file: File; status: string }[]>([]);
+  const [batchIndex, setBatchIndex] = useState(0);
+  const batchIndexRef = useRef(0);
+  const reading = useRef(false);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  function markFile(status: string) {
+    const index = batchIndexRef.current;
+    if (alive.current) setBatch((rows) => rows.map((row, i) => i === index ? { ...row, status } : row));
+  }
   const [status, setStatus] = useState("Lendo documento…");
   const [items, setItems] = useState<ExtractedItem[] | null>(null);
   const [documentSummary, setDocumentSummary] = useState<FinancialDocumentSummary | null>(null);
@@ -87,7 +97,7 @@ function CapturaPage() {
     let updated = 0;
     const usedExisting = new Set<string>();
     for (const item of importedItems) {
-      const existing = findExactDuplicate(item, transactions, usedExisting, origin);
+      const existing = findExactDuplicate(item, useFinanceStore.getState().transactions, usedExisting, origin);
       if (!existing) continue;
       usedExisting.add(existing.id);
       updateTransaction(existing.id, {
@@ -103,8 +113,34 @@ function CapturaPage() {
   }
 
   async function handleFiles(files: FileList | null) {
-    if (!files?.length) return;
-    const file = files[0];
+    if (!files?.length || reading.current || batch.length) return;
+    const selected = Array.from(files);
+    const error = validateImportBatch(selected);
+    if (error) { toast.error(error); return; }
+    setBatch(selected.map((file) => ({ file, status: "Aguardando" })));
+    batchIndexRef.current = 0;
+    setBatchIndex(0);
+    await readFile(selected[0]);
+  }
+
+  function clearReview() {
+    setItems(null); setDocumentSummary(null); setDuplicateSummary(null);
+    setImportOrigin(null); setDocumentFingerprint(null); setAccountId(null);
+  }
+
+  async function nextFile() {
+    if (reading.current) return;
+    clearReview();
+    const next = batchIndexRef.current + 1;
+    batchIndexRef.current = next;
+    setBatchIndex(next);
+    if (next < batch.length) await readFile(batch[next].file);
+  }
+
+  async function readFile(file: File) {
+    if (reading.current) return;
+    reading.current = true;
+    markFile("Lendo");
     setAccountId(null);
     setDocumentSummary(null);
     setDuplicateSummary(null);
@@ -115,6 +151,7 @@ function CapturaPage() {
     try {
       const { prepareFile } = await import("@/lib/extract-client");
       const prepared = await prepareFile(file);
+      if (!alive.current) return;
       setSource(prepared.source);
       setDocumentFingerprint(prepared.fingerprint ?? null);
 
@@ -127,7 +164,7 @@ function CapturaPage() {
       // milissegundos. Gemini fica reservado para documentos ambíguos, scans
       // ou layouts que não atinjam confiança suficiente.
       const bankAnalysis =
-        prepared.source === "pdf"
+        prepared.source === "pdf" || /\.txt$/i.test(file.name)
           ? analyzeTabularBankStatement(
               prepared.text,
               people.map((p) => ({ id: p.id, name: p.name })),
@@ -172,7 +209,7 @@ function CapturaPage() {
 
       if (hasImportedFingerprint(prepared.fingerprint)) {
         toast.success(`Este arquivo já foi importado como ${origin.originLabel}. Nenhum lançamento foi duplicado.`);
-        void navigate({ to: "/extrato" });
+        markFile("Já importado");
         return;
       }
 
@@ -195,26 +232,26 @@ function CapturaPage() {
         people: people.map((p) => ({ id: p.id, name: p.name, role: p.role })),
         defaultPersonId,
         today: todayIso(),
-        apiKey: geminiKey || undefined,
       };
       const result =
         localItems.length > 0
           ? ({ ok: true as const, items: localItems })
-          : geminiKey
-            ? await (await import("@/lib/gemini")).extractWithGemini(payload)
-            : await extractDocument({ data: payload });
+          : await extractDocument({ data: payload });
+      if (!alive.current) return;
       if (!result.ok) {
         toast.error(result.error);
+        markFile(`Erro: ${result.error}`);
         return;
       }
       if (!result.items.length) {
         toast.error("Não achei lançamentos nesse arquivo.");
+        markFile("Sem lançamentos encontrados");
         return;
       }
 
-      const holderNames = [summary?.holderName, ...summaries.map((item) => item.holderName)];
+      const holderNames = [summary?.holderName, ...useDocumentStore.getState().summaries.map((item) => item.holderName)];
       const classified = applyKnownHolderTransfers(result.items, holderNames);
-      const checked = flagImportDuplicates(classified, transactions, origin);
+      const checked = flagImportDuplicates(classified, useFinanceStore.getState().transactions, origin);
 
       if (checked.items.length > 0 && checked.items.every((item) => !item.selected)) {
         const enriched = enrichExistingOrigins(checked.items, origin);
@@ -230,16 +267,19 @@ function CapturaPage() {
         setImportOrigin(null);
         setDocumentFingerprint(null);
         setItems(null);
-        void navigate({ to: "/extrato" });
+        markFile("Conferido — sem novos lançamentos");
         return;
       }
 
       setDuplicateSummary(checked.summary);
+      markFile("Revisar");
       setItems(checked.items);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao ler o arquivo.");
+      markFile(`Erro: ${err instanceof Error ? err.message : "Falha ao ler o arquivo."}`);
     } finally {
-      setBusy(false);
+      reading.current = false;
+      if (alive.current) setBusy(false);
     }
   }
 
@@ -282,6 +322,8 @@ function CapturaPage() {
 
   if (items) {
     return (
+      <>
+      {batch.length > 0 ? <div className="px-5 pt-4 text-sm" aria-live="polite"><p className="font-medium">Arquivo {batchIndex + 1} de {batch.length}</p><p className="break-all text-muted">{batch[batchIndex]?.file.name}</p></div> : null}
       <CaptureReview
         items={items}
         accountId={accountId}
@@ -310,6 +352,7 @@ function CapturaPage() {
         }}
         onChange={setItems}
         onCancel={() => {
+          if (batch.length) { markFile("Pulado"); void nextFile(); return; }
           setItems(null);
           setDocumentSummary(null);
           setDuplicateSummary(null);
@@ -335,10 +378,28 @@ function CapturaPage() {
           setDuplicateSummary(null);
           setImportOrigin(null);
           setDocumentFingerprint(null);
-          void navigate({ to: "/extrato" });
+          if (batch.length) { markFile("Importado"); void nextFile(); }
+          else void navigate({ to: "/extrato" });
         }}
       />
+      </>
     );
+  }
+
+  if (batch.length) {
+    const current = batch[batchIndex];
+    return <main className="px-5 py-5">
+      <h1 className="font-display text-2xl">Importação em lote</h1>
+      <p className="mt-2 text-sm text-muted">Revise e confirme cada documento. Os anteriores confirmados já estão salvos.</p>
+      <ol className="my-4 space-y-2">{batch.map((row, index) => <li key={index} className="rounded-xl bg-elevated p-3 text-sm">
+        <p className="break-all font-medium">{index + 1}. {row.file.name}</p><p className="text-muted">{row.status}</p>
+      </li>)}</ol>
+      <div aria-live="polite">{busy ? <p className="flex items-center gap-2 text-sm"><Loader2 className="size-4 animate-spin" />{status}</p> : current ? <div className="flex flex-wrap gap-2">
+        {current.status.startsWith("Erro:") || current.status === "Sem lançamentos encontrados" ? <Button variant="secondary" onClick={() => void readFile(current.file)}>Tentar novamente</Button> : null}
+        <Button onClick={() => { if (current.status.startsWith("Erro:") || current.status === "Sem lançamentos encontrados") markFile("Pulado após falha"); void nextFile(); }}>{batchIndex + 1 < batch.length ? "Próximo arquivo" : "Concluir lote"}</Button>
+      </div> : <Button onClick={() => { setBatch([]); void navigate({ to: "/extrato" }); }}>Ver extrato</Button>}</div>
+      {!busy ? <Button className="mt-3" variant="secondary" onClick={() => { clearReview(); setBatch([]); }}>Encerrar e liberar arquivos</Button> : null}
+    </main>;
   }
 
   if (quick) {
@@ -477,21 +538,23 @@ function CapturaPage() {
         accept="image/*"
         capture="environment"
         className="hidden"
-        onChange={(e) => void handleFiles(e.target.files)}
+        onChange={(e) => { void handleFiles(e.target.files); e.target.value = ""; }}
       />
       <input
         ref={galleryRef}
         type="file"
+        multiple
         accept="image/*"
         className="hidden"
-        onChange={(e) => void handleFiles(e.target.files)}
+        onChange={(e) => { void handleFiles(e.target.files); e.target.value = ""; }}
       />
       <input
         ref={fileRef}
         type="file"
-        accept="application/pdf,.pdf,.csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        multiple
+        accept="image/*,.pdf,.csv,.xlsx,.xls,.txt,application/pdf,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         className="hidden"
-        onChange={(e) => void handleFiles(e.target.files)}
+        onChange={(e) => { void handleFiles(e.target.files); e.target.value = ""; }}
       />
 
       {busy ? (
@@ -530,7 +593,7 @@ function CapturaPage() {
               <p className="text-[11px] font-medium uppercase tracking-wide text-muted">Importar automaticamente</p>
               <h2 className="mt-0.5 font-display text-xl">Documento ou foto</h2>
               <p className="mt-1 text-xs leading-relaxed text-muted">
-                Para extratos, faturas, planilhas, boletos e comprovantes.
+                Fotos, PDFs, CSV, Excel e TXT. Até 10 arquivos por lote, 10 MB por arquivo e 40 MB no total. Revisão individual antes de salvar.
               </p>
             </div>
 

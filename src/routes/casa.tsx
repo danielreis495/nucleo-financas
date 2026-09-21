@@ -71,7 +71,7 @@ function downloadBackup() {
   }
 }
 
-function restoreBackup(file: File, currentGeminiKey: string) {
+function restoreBackup(file: File) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
@@ -92,7 +92,7 @@ function restoreBackup(file: File, currentGeminiKey: string) {
       }
       const restored = {
         ...backup.data,
-        state: { ...state, geminiKey: currentGeminiKey },
+        state: { ...state, geminiKey: "" },
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(restored));
       toast.success("Backup restaurado. Reabrindo o Núcleo…");
@@ -284,7 +284,7 @@ function CasaPage() {
         ) : null}
       </section>
 
-      <GeminiKeyCard />
+      <ServerAiCard />
 
       <section className="mt-4 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
         <div className="flex items-center gap-3">
@@ -311,7 +311,7 @@ function CasaPage() {
           onChange={(event) => {
             const file = event.target.files?.[0];
             event.target.value = "";
-            if (file) restoreBackup(file, state.geminiKey);
+            if (file) restoreBackup(file);
           }}
         />
         <p className="mt-2 text-[10px] leading-relaxed text-muted">
@@ -411,12 +411,7 @@ function CasaPage() {
   );
 }
 
-function GeminiKeyCard() {
-  const saved = useFinanceStore((s) => s.geminiKey);
-  const setGeminiKey = useFinanceStore((s) => s.setGeminiKey);
-  const [draft, setDraft] = useState("");
-  const tail = saved.length > 6 ? saved.slice(-4) : "";
-
+function ServerAiCard() {
   return (
     <section className="mt-4 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
       <div className="flex items-center gap-3">
@@ -426,87 +421,20 @@ function GeminiKeyCard() {
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted">Núcleo IA</p>
           <div className="mt-0.5 flex items-center justify-between gap-3">
-            <h2 className="font-display text-xl">Conversa com IA</h2>
-            <span className={cn(
-              "shrink-0 rounded-full px-2.5 py-1 text-[10px] font-medium",
-              saved ? "bg-primary-soft text-primary" : "bg-line text-muted",
-            )}>
-              {saved ? "Ativa" : "Opcional"}
+            <h2 className="font-display text-xl">Conversa e documentos com IA</h2>
+            <span className="shrink-0 rounded-full bg-primary-soft px-2.5 py-1 text-[10px] font-medium text-primary">
+              Ativa
             </span>
           </div>
         </div>
       </div>
 
       <p className="mt-2 text-xs leading-relaxed text-muted">
-        O Núcleo funciona normalmente sem chave. Ela só libera a conversa livre com seus dados e interpretações que precisem do Gemini.
+        O Gemini está configurado com segurança no servidor. Você pode conversar, analisar movimentos e importar documentos sem cadastrar chave neste aparelho.
       </p>
-
-      {saved ? (
-        <div className="mt-3 flex items-center justify-between rounded-xl bg-primary-soft px-3 py-2.5 text-primary">
-          <div>
-            <p className="text-xs font-medium">Gemini conectado</p>
-            <p className="text-[10px] text-primary/75">Chave termina em {tail}</p>
-          </div>
-          <Link to="/conselhos" className="text-xs font-medium">Abrir Núcleo</Link>
-        </div>
-      ) : null}
-
-      <details className="group mt-3 rounded-xl bg-surface shadow-[var(--shadow-border)]" open={!saved}>
-        <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-medium">
-          {saved ? "Alterar configuração da IA" : "Ativar conversa com IA"}
-          <ChevronDown className="size-4 text-muted transition-transform group-open:rotate-180" />
-        </summary>
-        <div className="border-t border-line px-3 pb-3 pt-3">
-          <p className="text-xs leading-relaxed text-muted">
-            Crie uma chave no Google AI Studio e cole somente neste aparelho.
-          </p>
-          <a
-            href="https://aistudio.google.com/apikey"
-            target="_blank"
-            rel="noreferrer"
-            className="mt-2 inline-flex text-xs font-medium text-primary underline underline-offset-2"
-          >
-            Abrir Google AI Studio
-          </a>
-          <input
-            type="password"
-            autoComplete="off"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="AIza…"
-            className="mt-3 h-11 w-full rounded-xl bg-elevated px-3 text-sm shadow-[var(--shadow-border)] outline-none focus:outline-2 focus:outline-primary"
-          />
-          <div className="mt-3 flex gap-2">
-            <Button
-              className="flex-1"
-              disabled={!draft.trim()}
-              onClick={() => {
-                setGeminiKey(draft.trim());
-                setDraft("");
-                toast.success("Conversa com IA ativada neste aparelho");
-              }}
-            >
-              {saved ? "Trocar chave" : "Ativar"}
-            </Button>
-            {saved ? (
-              <Button
-                variant="ghost"
-                className="text-danger"
-                onClick={() => {
-                  setGeminiKey("");
-                  setDraft("");
-                  toast.success("Conversa com IA desativada");
-                }}
-              >
-                Desativar
-              </Button>
-            ) : null}
-          </div>
-          <p className="mt-2 text-[10px] leading-relaxed text-muted">
-            A chave não entra no backup do Núcleo.
-          </p>
-        </div>
-      </details>
+      <Link to="/conselhos" className="mt-3 inline-flex text-xs font-medium text-primary">
+        Abrir Núcleo IA
+      </Link>
     </section>
   );
 }

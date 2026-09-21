@@ -10,15 +10,11 @@ App de orçamento da casa: foto, PDF ou planilha viram lançamentos. Quase sem d
 
 Quando terminar, a Vercel te dá um link (algo como `nucleo-financas.vercel.app`). Abra no celular e, se quiser, adicione à tela inicial.
 
-### Leitura automática com Gemini (grátis)
+### Leitura automática de documentos
 
-Não cole a chave na Vercel. Cole **dentro do app**:
+Para interpretar fotos e documentos no importador, conecte uma credencial do Gemini pelo Vercel Connect ao projeto. A conexão `generativelanguage.googleapis.com/nucleo-financas1` já é usada automaticamente pelo app em **Production**, **Preview** e **Development**. Como alternativa, o servidor também aceita `GEMINI_API_KEY` ou `GOOGLE_API_KEY` nas variáveis de ambiente.
 
-1. Pegue a chave em [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
-2. No Núcleo, abra **Casa**.
-3. Em **Chave do Gemini**, cole e toque **Salvar**.
-
-A chave fica neste aparelho. Sem ela, o resto do app funciona (lançamento rápido, pessoas, parcelas, extrato).
+A chave fica protegida no servidor e não precisa ser cadastrada nos aparelhos. Sem ela, o restante do app funciona normalmente (lançamento rápido, pessoas, parcelas e extrato).
 
 ## No celular
 
