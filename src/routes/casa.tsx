@@ -129,10 +129,13 @@ function CasaPage() {
   return (
     <main className="flex flex-col px-5 pb-8 pt-5">
       <div>
-        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">Configurações</p>
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">
+          Configurações
+        </p>
         <h1 className="font-display text-3xl tracking-tight">Sua casa financeira</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          Organize quem participa, quais contas você acompanha e como o Núcleo trabalha com seus dados.
+          Organize quem participa, quais contas você acompanha e como o Núcleo trabalha com seus
+          dados.
         </p>
       </div>
 
@@ -149,7 +152,7 @@ function CasaPage() {
 
       <AccountsCard />
 
-      <CardsOverviewCard />
+      <CardsOverviewCard className="mt-4" />
 
       <section className="mt-4 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
         <div className="flex items-center gap-3">
@@ -182,7 +185,8 @@ function CasaPage() {
                     className="w-full bg-transparent text-sm font-medium outline-none"
                   />
                   <p className="text-[11px] text-muted">
-                    {ROLES.find((item) => item.id === person.role)?.label} · {formatBRL(amount)} este mês
+                    {ROLES.find((item) => item.id === person.role)?.label} · {formatBRL(amount)}{" "}
+                    este mês
                   </p>
                 </div>
                 {state.people.length > 1 ? (
@@ -197,7 +201,9 @@ function CasaPage() {
               </div>
 
               <details className="mt-2 pl-13">
-                <summary className="cursor-pointer text-[10px] font-medium text-muted">Limite pessoal</summary>
+                <summary className="cursor-pointer text-[10px] font-medium text-muted">
+                  Limite pessoal
+                </summary>
                 <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
                   {[null, 400, 800, 1500, 2500, 4000].map((value) => (
                     <button
@@ -297,11 +303,16 @@ function CasaPage() {
           </div>
         </div>
         <p className="mt-2 text-xs leading-relaxed text-muted">
-          Os dados financeiros ficam neste aparelho. Faça um backup antes de trocar de celular ou fazer mudanças importantes.
+          Os dados financeiros ficam neste aparelho. Faça um backup antes de trocar de celular ou
+          fazer mudanças importantes.
         </p>
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <Button variant="secondary" onClick={downloadBackup}>Fazer backup</Button>
-          <Button variant="secondary" onClick={() => restoreInput.current?.click()}>Restaurar</Button>
+          <Button variant="secondary" onClick={downloadBackup}>
+            Fazer backup
+          </Button>
+          <Button variant="secondary" onClick={() => restoreInput.current?.click()}>
+            Restaurar
+          </Button>
         </div>
         <input
           ref={restoreInput}
@@ -327,14 +338,17 @@ function CasaPage() {
             </span>
             <span>
               <span className="block text-sm font-medium">Manutenção dos dados</span>
-              <span className="block text-xs text-muted">Reclassificar ou reimportar movimentos</span>
+              <span className="block text-xs text-muted">
+                Reclassificar ou reimportar movimentos
+              </span>
             </span>
           </span>
           <ChevronDown className="size-4 text-muted transition-transform group-open:rotate-180" />
         </summary>
         <div className="border-t border-line px-4 pb-4 pt-3">
           <p className="text-xs leading-relaxed text-muted">
-            Use estas opções somente quando transferências, aplicações, resgates ou pagamentos de fatura precisarem ser revistos.
+            Use estas opções somente quando transferências, aplicações, resgates ou pagamentos de
+            fatura precisarem ser revistos.
           </p>
           <div className="mt-3 flex flex-col gap-2">
             <Button
@@ -357,7 +371,9 @@ function CasaPage() {
                 clearFinancialHistory();
                 clearSummaries();
                 localStorage.removeItem(IMPORT_FINGERPRINTS_KEY);
-                toast.success("Importações financeiras zeradas. Você já pode reenviar os arquivos.");
+                toast.success(
+                  "Importações financeiras zeradas. Você já pode reenviar os arquivos.",
+                );
               }}
             >
               Limpar histórico para reimportar
@@ -430,7 +446,8 @@ function ServerAiCard() {
       </div>
 
       <p className="mt-2 text-xs leading-relaxed text-muted">
-        O Gemini está configurado com segurança no servidor. Você pode conversar, analisar movimentos e importar documentos sem cadastrar chave neste aparelho.
+        O Gemini está configurado com segurança no servidor. Você pode conversar, analisar
+        movimentos e importar documentos sem cadastrar chave neste aparelho.
       </p>
       <Link to="/conselhos" className="mt-3 inline-flex text-xs font-medium text-primary">
         Abrir Núcleo IA

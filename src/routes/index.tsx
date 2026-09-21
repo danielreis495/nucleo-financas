@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { CalendarClock } from "lucide-react";
 import { CashFlowForecastCard } from "@/components/cash-flow-forecast-card";
 import { CashPositionCard } from "@/components/cash-position-card";
+import { CardsOverviewCard } from "@/components/cards-overview-card";
 import { HomeCockpit } from "@/components/home-cockpit";
 import { MonthChangeCard } from "@/components/month-change-card";
 import { MonthHeader } from "@/components/month-header";
@@ -64,6 +65,8 @@ function Home() {
 
       <CashPositionCard month={month} />
 
+      <CardsOverviewCard className="mx-5" />
+
       <MonthlySimulationCard month={month} />
 
       <section className="px-5">
@@ -86,7 +89,8 @@ function Home() {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium">{t.merchant}</span>
                     <span className="block text-xs text-muted">
-                      {categoryLabel(t.category, state.customCategories)} · {formatShortDate(t.date)}
+                      {categoryLabel(t.category, state.customCategories)} ·{" "}
+                      {formatShortDate(t.date)}
                     </span>
                   </span>
                   <span className="font-display tabular-nums">−{formatBRL(t.amount)}</span>
@@ -137,7 +141,11 @@ function Home() {
       <section className="px-5">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-display text-xl">Categorias</h2>
-          <Link to="/extrato" search={{ type: "expense" }} className="text-sm font-medium text-primary">
+          <Link
+            to="/extrato"
+            search={{ type: "expense" }}
+            className="text-sm font-medium text-primary"
+          >
             Ver todas
           </Link>
         </div>
@@ -148,13 +156,11 @@ function Home() {
             const over = budget ? c.amount > budget.monthlyLimit : false;
             return (
               <li key={c.category}>
-                <Link
-                  to="/extrato"
-                  search={{ cat: c.category, type: "expense" }}
-                  className="block"
-                >
+                <Link to="/extrato" search={{ cat: c.category, type: "expense" }} className="block">
                   <div className="mb-1 flex items-baseline justify-between text-sm">
-                    <span className="font-medium">{categoryLabel(c.category, state.customCategories)}</span>
+                    <span className="font-medium">
+                      {categoryLabel(c.category, state.customCategories)}
+                    </span>
                     <span className={cn("tabular-nums", over ? "text-danger" : "text-muted")}>
                       {formatBRL(c.amount)}
                       {budget ? ` / ${formatBRLCompact(budget.monthlyLimit)}` : ""}
@@ -182,7 +188,8 @@ function Home() {
           <div>
             <h2 className="font-display text-xl">Parcelas à frente</h2>
             <p className="mt-1 text-sm text-muted">
-              Comprometido: <span className="font-medium text-fg tabular-nums">{formatBRL(committed)}</span>
+              Comprometido:{" "}
+              <span className="font-medium text-fg tabular-nums">{formatBRL(committed)}</span>
             </p>
           </div>
           <Link to="/parcelas" className="text-sm font-medium text-primary">
@@ -215,7 +222,11 @@ function Home() {
             <div className="min-w-0 flex-1">
               <h2 className="font-display text-xl">Recorrências detectadas</h2>
               <p className="mt-1 text-sm text-muted">
-                Cerca de <span className="font-medium text-fg tabular-nums">{formatBRL(recurringTotal)}</span> por mês em cobranças que se repetem.
+                Cerca de{" "}
+                <span className="font-medium text-fg tabular-nums">
+                  {formatBRL(recurringTotal)}
+                </span>{" "}
+                por mês em cobranças que se repetem.
               </p>
             </div>
           </div>
@@ -225,7 +236,8 @@ function Home() {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{item.merchant}</span>
                   <span className="block text-xs text-muted">
-                    provável em {formatShortDate(item.nextDate)} · {item.occurrences} meses observados
+                    provável em {formatShortDate(item.nextDate)} · {item.occurrences} meses
+                    observados
                   </span>
                 </span>
                 <span className="shrink-0 tabular-nums">{formatBRL(item.averageAmount)}</span>
@@ -233,12 +245,11 @@ function Home() {
             ))}
           </ul>
           <p className="mt-2 text-[11px] leading-relaxed text-muted">
-            Estimativa automática pelo histórico; o Núcleo não cria lançamentos futuros nem altera seus dados.
+            Estimativa automática pelo histórico; o Núcleo não cria lançamentos futuros nem altera
+            seus dados.
           </p>
         </section>
       ) : null}
-
-
 
       {editing && state.transactions.some((t) => t.id === editing.id) ? (
         <TransactionEdit tx={editing} onClose={() => setEditing(null)} />

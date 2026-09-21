@@ -1,4 +1,5 @@
-import { AlertTriangle, CheckCircle2, CreditCard, Clock3 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { AlertTriangle, CheckCircle2, ChevronRight, CreditCard, Clock3 } from "lucide-react";
 import { cashPositionForMonth } from "@/lib/cash-position";
 import { countsInBudget } from "@/lib/movement-nature";
 import { useDocumentStore } from "@/lib/document-store";
@@ -31,13 +32,15 @@ function canonical(value: string | undefined) {
 }
 
 function statusInfo(status: "paid" | "open" | "future" | undefined) {
-  if (status === "paid") return { label: "Paga", icon: CheckCircle2, cls: "text-primary bg-primary-soft" };
-  if (status === "open") return { label: "Em aberto", icon: AlertTriangle, cls: "text-danger bg-danger-soft" };
+  if (status === "paid")
+    return { label: "Paga", icon: CheckCircle2, cls: "text-primary bg-primary-soft" };
+  if (status === "open")
+    return { label: "Em aberto", icon: AlertTriangle, cls: "text-danger bg-danger-soft" };
   if (status === "future") return { label: "Depois", icon: Clock3, cls: "text-warn bg-warn-soft" };
   return { label: "Sem status", icon: Clock3, cls: "text-muted bg-line" };
 }
 
-export function CardsOverviewCard() {
+export function CardsOverviewCard({ className }: { className?: string }) {
   const state = useFinanceStore();
   const month = state.viewMonth;
   const summaries = useDocumentStore((s) => s.summaries);
@@ -57,7 +60,9 @@ export function CardsOverviewCard() {
 
   const cards = [...institutions.entries()].map(([key, institution]) => {
     const rows = monthRows.filter(
-      (tx) => tx.originKind === "credit_card" && canonical(tx.originInstitution || tx.originLabel) === key,
+      (tx) =>
+        tx.originKind === "credit_card" &&
+        canonical(tx.originInstitution || tx.originLabel) === key,
     );
     const expenses = rows
       .filter((tx) => countsInBudget(tx) && tx.type === "expense")
@@ -66,7 +71,9 @@ export function CardsOverviewCard() {
       .filter((tx) => countsInBudget(tx) && tx.type === "income")
       .reduce((sum, tx) => sum + tx.amount, 0);
     const spent = Math.max(0, expenses - credits);
-    const billRow = cash.billRows.find((row) => canonical(row.institution) === key && row.referenceMonth === month);
+    const billRow = cash.billRows.find(
+      (row) => canonical(row.institution) === key && row.referenceMonth === month,
+    );
     const summary = summaries
       .filter(
         (item) =>
@@ -95,7 +102,7 @@ export function CardsOverviewCard() {
     .reduce((sum, card) => sum + (card.total ?? 0), 0);
 
   return (
-    <section className="mt-4 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
+    <section className={cn("rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]", className)}>
       <div className="flex items-center gap-3">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary">
           <CreditCard className="size-4" />
@@ -111,7 +118,7 @@ export function CardsOverviewCard() {
         </div>
       </div>
 
-      <div className="mt-3 divide-y divide-line rounded-xl bg-surface px-3 shadow-[var(--shadow-border)]">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         {cards.map((card) => {
           const info = statusInfo(card.status);
           const Icon = info.icon;
@@ -122,42 +129,51 @@ export function CardsOverviewCard() {
                 ? `Vence ${formatShortDate(card.dueDate)}`
                 : "Data não identificada";
 
+          const difference = card.total === null ? null : Math.abs(card.total - card.spent);
+
           return (
-            <article key={card.key} className="py-3">
-              <div className="flex items-start gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-medium">Cartão {card.institution}</p>
-                    <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium", info.cls)}>
-                      <Icon className="size-3" />
-                      {info.label}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-[11px] text-muted">
-                    {dateLabel} · {card.count} lançamento{card.count === 1 ? "" : "s"}
-                  </p>
+            <Link
+              key={card.key}
+              to="/extrato"
+              search={{ q: card.institution }}
+              aria-label={`Ver movimentos do cartão ${card.institution}`}
+              className="group rounded-xl bg-surface p-4 shadow-[var(--shadow-border)] transition-transform active:scale-[0.98]"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">Cartão {card.institution}</p>
+                  <p className="mt-0.5 text-[11px] text-muted">{dateLabel}</p>
                 </div>
-                <p className="shrink-0 font-display text-sm tabular-nums">
-                  {card.total === null ? formatBRLCompact(card.spent) : formatBRL(card.total)}
-                </p>
+                <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5" />
               </div>
 
-              <details className="mt-2">
-                <summary className="cursor-pointer text-[10px] font-medium text-muted">Ver composição</summary>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <div className="rounded-lg bg-elevated px-3 py-2">
-                    <p className="text-[10px] text-muted">Classificado</p>
-                    <p className="mt-0.5 font-display text-sm tabular-nums">{formatBRL(card.spent)}</p>
-                  </div>
-                  <div className="rounded-lg bg-elevated px-3 py-2">
-                    <p className="text-[10px] text-muted">Fatura oficial</p>
-                    <p className="mt-0.5 font-display text-sm tabular-nums">
-                      {card.total === null ? "—" : formatBRL(card.total)}
-                    </p>
-                  </div>
-                </div>
-              </details>
-            </article>
+              <p className="mt-4 font-display text-2xl tabular-nums">
+                {card.total === null ? formatBRLCompact(card.spent) : formatBRL(card.total)}
+              </p>
+              <p className="mt-0.5 text-[10px] text-muted">
+                {card.total === null ? "Total classificado" : "Fatura oficial"}
+              </p>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-medium",
+                    info.cls,
+                  )}
+                >
+                  <Icon className="size-3" />
+                  {info.label}
+                </span>
+                <span className="rounded-full bg-line px-2 py-1 text-[10px] text-muted">
+                  {card.count} lançamento{card.count === 1 ? "" : "s"}
+                </span>
+                {difference !== null && difference >= 0.01 ? (
+                  <span className="rounded-full bg-warn-soft px-2 py-1 text-[10px] font-medium text-warn">
+                    Diferença {formatBRLCompact(difference)}
+                  </span>
+                ) : null}
+              </div>
+            </Link>
           );
         })}
       </div>
