@@ -20,7 +20,11 @@ function readEnv(name: string) {
   }
 }
 
-const GEMINI_CONNECTOR_ID = "scl_motKP13qnaNp1reL9Zqovg";
+const GEMINI_CONNECTORS = [
+  "generativelanguage.googleapis.com/crimson-ribbon",
+  "crimson-ribbon",
+  "scl_motKP13qnaNp1reL9Zqovg",
+];
 
 type GeminiCredential = { apiKey: string } | { error: string };
 
@@ -28,17 +32,21 @@ async function serverGeminiCredential(): Promise<GeminiCredential> {
   const environmentKey = readEnv("GEMINI_API_KEY") || readEnv("GOOGLE_API_KEY");
   if (environmentKey) return { apiKey: environmentKey };
 
-  try {
-    const apiKey = (
-      await getToken(readEnv("GEMINI_CONNECTOR_ID") || GEMINI_CONNECTOR_ID, {
-        subject: { type: "app" },
-      })
-    ).trim();
+  const configuredConnector = readEnv("GEMINI_CONNECTOR_ID");
+  const connectors = [...new Set([configuredConnector, ...GEMINI_CONNECTORS].filter(Boolean))];
+  let lastError: unknown;
 
-    if (apiKey) return { apiKey };
-  } catch (error) {
-    console.error("Não foi possível obter a credencial do Gemini pelo Vercel Connect.", error);
+  for (const connector of connectors) {
+    try {
+      const apiKey = (await getToken(connector, { subject: { type: "app" } })).trim();
+
+      if (apiKey) return { apiKey };
+    } catch (error) {
+      lastError = error;
+    }
   }
+
+  console.error("Não foi possível obter a credencial do Gemini pelo Vercel Connect.", lastError);
 
   return {
     error:
