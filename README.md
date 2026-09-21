@@ -12,7 +12,7 @@ Quando terminar, a Vercel te dá um link (algo como `nucleo-financas.vercel.app`
 
 ### Leitura automática de documentos
 
-Para interpretar fotos e documentos no importador, conecte uma credencial do Gemini pelo Vercel Connect ao projeto. A conexão `crimson-ribbon` já é usada automaticamente pelo app em **Production**, **Preview** e **Development**. Como alternativa, o servidor também aceita `GEMINI_API_KEY` ou `GOOGLE_API_KEY` nas variáveis de ambiente.
+Para interpretar fotos e documentos no importador, conecte uma credencial do Gemini pelo Vercel Connect ao projeto. A conexão `generativelanguage.googleapis.com/nucleo-financas1` já é usada automaticamente pelo app em **Production**, **Preview** e **Development**. Como alternativa, o servidor também aceita `GEMINI_API_KEY` ou `GOOGLE_API_KEY` nas variáveis de ambiente.
 
 A chave fica protegida no servidor e não precisa ser cadastrada nos aparelhos. Sem ela, o restante do app funciona normalmente (lançamento rápido, pessoas, parcelas e extrato).
 

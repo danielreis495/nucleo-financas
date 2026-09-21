@@ -20,11 +20,7 @@ function readEnv(name: string) {
   }
 }
 
-const GEMINI_CONNECTORS = [
-  "generativelanguage.googleapis.com/crimson-ribbon",
-  "crimson-ribbon",
-  "scl_motKP13qnaNp1reL9Zqovg",
-];
+const GEMINI_CONNECTORS = ["generativelanguage.googleapis.com/nucleo-financas1"];
 
 type GeminiCredential = { apiKey: string } | { error: string };
 
@@ -50,7 +46,7 @@ async function serverGeminiCredential(): Promise<GeminiCredential> {
 
   return {
     error:
-      "A conexão crimson-ribbon do Gemini não liberou a credencial. Confira a conexão no projeto da Vercel e tente novamente.",
+      "A conexão nucleo-financas1 do Gemini não liberou a credencial. Confira a conexão no projeto da Vercel e tente novamente.",
   };
 }
 
