@@ -87,7 +87,6 @@ export function CardsOverviewCard({ className }: { className?: string }) {
       key,
       institution,
       spent,
-      count: rows.filter(countsInBudget).length,
       total: billRow?.total ?? summary?.billTotal ?? null,
       dueDate: billRow?.dueDate ?? summary?.dueDate,
       status: billRow?.status,
@@ -163,9 +162,6 @@ export function CardsOverviewCard({ className }: { className?: string }) {
                 >
                   <Icon className="size-3" />
                   {info.label}
-                </span>
-                <span className="rounded-full bg-line px-2 py-1 text-[10px] text-muted">
-                  {card.count} lançamento{card.count === 1 ? "" : "s"}
                 </span>
                 {difference !== null && difference >= 0.01 ? (
                   <span className="rounded-full bg-warn-soft px-2 py-1 text-[10px] font-medium text-warn">

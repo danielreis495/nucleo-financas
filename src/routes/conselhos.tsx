@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { ChevronDown, Loader2, ShieldCheck, Sparkles, Target, WalletCards } from "lucide-react";
+import { ChevronDown, Loader2, Settings, ShieldCheck, Sparkles, Target, WalletCards } from "lucide-react";
 import { AdvisorChat } from "@/components/advisor-chat";
 import { FinancialAlertsCard } from "@/components/financial-alerts-card";
 import { Button } from "@/components/ui/button";
@@ -221,6 +221,22 @@ function ConselhosPage() {
       <p className="mt-2 text-sm leading-relaxed text-muted">
         Veja o que precisa de atenção, converse com seus dados e transforme o diagnóstico em ações simples.
       </p>
+
+      <Link
+        to="/casa"
+        className="mt-3 flex items-center justify-between rounded-xl bg-elevated px-4 py-3 shadow-[var(--shadow-border)] transition-transform active:scale-[0.98]"
+      >
+        <span className="flex items-center gap-3">
+          <span className="flex size-9 items-center justify-center rounded-full bg-primary-soft text-primary">
+            <Settings className="size-4" />
+          </span>
+          <span>
+            <span className="block text-sm font-medium">Casa, dados e backup</span>
+            <span className="block text-xs text-muted">Contas, pessoas, restauração e manutenção</span>
+          </span>
+        </span>
+        <ChevronDown className="size-4 -rotate-90 text-muted" />
+      </Link>
 
       <section className="mt-4 overflow-hidden rounded-2xl bg-primary text-primary-fg shadow-[var(--shadow-border)]">
         <div className="px-5 pb-4 pt-5">

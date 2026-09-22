@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { CalendarClock } from "lucide-react";
 import { CashFlowForecastCard } from "@/components/cash-flow-forecast-card";
@@ -9,7 +8,6 @@ import { MonthChangeCard } from "@/components/month-change-card";
 import { MonthHeader } from "@/components/month-header";
 import { MonthlySimulationCard } from "@/components/monthly-simulation-card";
 import { PersonAvatar } from "@/components/person-avatar";
-import { TransactionEdit } from "@/components/transaction-edit";
 import { TodayBriefCard } from "@/components/today-brief-card";
 import { categoryLabel } from "@/lib/categories";
 import { formatBRL, formatBRLCompact, formatShortDate } from "@/lib/money";
@@ -20,11 +18,9 @@ import {
   monthTransactions,
   spendByCategory,
   spendByPerson,
-  totalsForMonth,
   upcomingInstallments,
 } from "@/lib/selectors";
 import { useFinanceStore } from "@/lib/store";
-import type { Transaction } from "@/lib/types";
 import { cn, todayIso } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({ component: Home });
@@ -33,7 +29,6 @@ function Home() {
   const month = useFinanceStore((s) => s.viewMonth);
   const setMonth = useFinanceStore((s) => s.setViewMonth);
   const state = useFinanceStore();
-  const totals = totalsForMonth(state, month);
   const rows = monthTransactions(state, month);
   const cats = spendByCategory(rows);
   const people = spendByPerson(rows, state.people);
@@ -43,11 +38,6 @@ function Home() {
   const committed = committedFuture(state, todayIso());
   const recurring = recurringExpenses(state, 5);
   const recurringTotal = recurringMonthlyTotal(recurring);
-  const recent = [...rows]
-    .filter((t) => t.type === "expense")
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 4);
-  const [editing, setEditing] = useState<Transaction | null>(null);
 
   return (
     <main className="stagger-in flex flex-col gap-4 pb-6">
@@ -68,38 +58,6 @@ function Home() {
       <CardsOverviewCard className="mx-5" />
 
       <MonthlySimulationCard month={month} />
-
-      <section className="px-5">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-display text-xl">Recentes</h2>
-          <Link to="/extrato" className="text-sm font-medium text-primary">
-            Extrato
-          </Link>
-        </div>
-        <ul className="divide-y divide-line rounded-xl bg-elevated px-4 shadow-[var(--shadow-border)]">
-          {recent.map((t) => {
-            const person = state.people.find((p) => p.id === t.personId);
-            return (
-              <li key={t.id}>
-                <button
-                  className="flex w-full items-center gap-3 py-3 text-left"
-                  onClick={() => setEditing(t)}
-                >
-                  {person ? <PersonAvatar person={person} size="sm" /> : null}
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{t.merchant}</span>
-                    <span className="block text-xs text-muted">
-                      {categoryLabel(t.category, state.customCategories)} ·{" "}
-                      {formatShortDate(t.date)}
-                    </span>
-                  </span>
-                  <span className="font-display tabular-nums">−{formatBRL(t.amount)}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
 
       <section className="px-5">
         <p className="mb-2 text-xs font-medium text-muted">Ritmo do mês</p>
@@ -251,9 +209,6 @@ function Home() {
         </section>
       ) : null}
 
-      {editing && state.transactions.some((t) => t.id === editing.id) ? (
-        <TransactionEdit tx={editing} onClose={() => setEditing(null)} />
-      ) : null}
     </main>
   );
 }
