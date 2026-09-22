@@ -2,20 +2,26 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   allowsManualInstallmentPayment,
-  originMatchesInstallmentKind,
+  installmentNamesMatch,
 } from "./installment-rules.ts";
 
 describe("installment reconciliation rules", () => {
-  it("links card plans only to individual card movements", () => {
-    assert.equal(originMatchesInstallmentKind("card", "credit_card"), true);
-    assert.equal(originMatchesInstallmentKind("card", "bank_account"), false);
-    assert.equal(originMatchesInstallmentKind("card", undefined), false);
+  it("matches the real installment name even when the plan title is truncated", () => {
+    assert.equal(
+      installmentNamesMatch("Parcelamento de Fatura", ["PARCELAMEN FATURA", "Banco Itaú S.A."]),
+      true,
+    );
   });
 
-  it("links loans and other plans to non-card movements", () => {
-    assert.equal(originMatchesInstallmentKind("loan", "bank_account"), true);
-    assert.equal(originMatchesInstallmentKind("other", "manual"), true);
-    assert.equal(originMatchesInstallmentKind("loan", "credit_card"), false);
+  it("ignores accents and accepts a shared meaningful name", () => {
+    assert.equal(installmentNamesMatch("Financiamento da Moto", ["FINANCIAMENTO MOTO"]), true);
+  });
+
+  it("rejects an unrelated movement with the same value", () => {
+    assert.equal(
+      installmentNamesMatch("Mercado Central", ["Parcelamento de Fatura", "Banco Itaú"]),
+      false,
+    );
   });
 
   it("keeps manual payment confirmation disabled for card plans", () => {

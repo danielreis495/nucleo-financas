@@ -355,8 +355,8 @@ function PlanKindEditor({ planId, kind }: { planId: string; kind: InstallmentKin
     <details className="mt-2 rounded-lg bg-surface px-3 py-2.5 text-sm shadow-[var(--shadow-border)]">
       <summary className="cursor-pointer text-xs font-medium">Corrigir tipo do compromisso</summary>
       <p className="mt-2 text-xs leading-relaxed text-muted">
-        O tipo define onde a parcela será conciliada. Cartão procura a cobrança na fatura;
-        empréstimo e outro procuram o pagamento no extrato bancário.
+        O tipo organiza o compromisso e define se ele aceita baixa manual. Ele não interfere na
+        busca de movimentos para conciliação.
       </p>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {(

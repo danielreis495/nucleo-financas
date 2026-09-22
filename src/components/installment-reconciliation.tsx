@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link2, ReceiptText } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { originMatchesInstallmentKind } from "@/lib/installment-rules";
+import { installmentNamesMatch } from "@/lib/installment-rules";
 import { natureOf } from "@/lib/movement-nature";
 import { formatBRL, formatShortDate } from "@/lib/money";
 import { useFinanceStore } from "@/lib/store";
@@ -28,8 +28,8 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
             row.status === "posted" &&
             row.type === "expense" &&
             natureOf(row) === "budget" &&
-            originMatchesInstallmentKind(plan.kind, row.originKind) &&
             Math.round(row.amount * 100) === Math.round(selected.amount * 100) &&
+            installmentNamesMatch(row.merchant, [plan.title, plan.merchant, selected.merchant]) &&
             !state.transactions.some((item) => item.reconciledPaymentId === row.id),
         )
         .sort(
@@ -48,9 +48,8 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
       </summary>
 
       <p className="mt-2 text-xs leading-relaxed text-muted">
-        {cardPlan
-          ? "Escolha uma parcela e vincule à cobrança correspondente da fatura. Valor igual sozinho não comprova a correspondência."
-          : "Escolha uma parcela e confirme como ela foi paga. Valor igual sozinho não comprova a correspondência."}
+        O Núcleo procura pelo mesmo valor e por um nome semelhante. Tipo, categoria e origem não
+        são usados para bloquear a busca; confira o movimento antes de vinculá-lo.
       </p>
 
       <label className="mt-3 block text-xs font-medium text-muted">
@@ -102,14 +101,14 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
             }
           }}
         >
-          {cardPlan ? "Desfazer vínculo com a fatura" : "Desfazer vínculo com extrato"}
+          Desfazer vínculo
         </Button>
       ) : selected ? (
         <>
           {cardPlan ? (
             <p className="mt-3 rounded-lg bg-primary-soft px-3 py-2.5 text-xs leading-relaxed text-primary">
-              Vincule esta parcela à cobrança correspondente importada da fatura. O lançamento real
-              ficará no orçamento e a previsão deixará de ser contada em duplicidade.
+              A classificação deste compromisso não interfere na busca. Ao vincular, o movimento
+              real permanece no orçamento e a previsão deixa de ser contada em duplicidade.
             </p>
           ) : (
             <div className="mt-3 grid grid-cols-2 gap-2">
@@ -188,7 +187,7 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
           ) : (
             <div className="mt-3">
               <label className="block text-xs font-medium text-muted">
-                {cardPlan ? "Cobrança encontrada" : "Pagamento encontrado"}
+                Movimento encontrado
                 <select
                   className="mt-1 h-10 w-full rounded-lg bg-elevated px-3 text-sm shadow-[var(--shadow-border)]"
                   value={paymentId}
@@ -209,8 +208,8 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
               {!candidates.length ? (
                 <p className="mt-2 text-xs leading-relaxed text-muted">
                   {cardPlan
-                    ? "Nenhuma cobrança de cartão com o mesmo valor está disponível para vínculo."
-                    : "Nenhum pagamento integral com o mesmo valor está disponível no extrato."}
+                    ? "Nenhum movimento com o mesmo valor e nome semelhante foi encontrado."
+                    : "Nenhum pagamento com o mesmo valor e nome semelhante foi encontrado."}
                 </p>
               ) : null}
 
@@ -229,13 +228,13 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
                 onClick={() => {
                   if (state.reconcileInstallment(selected.id, paymentId)) {
                     setPaymentId("");
-                    toast.success(cardPlan ? "Parcela conciliada com a fatura." : "Pagamento conciliado.");
+                    toast.success("Parcela conciliada.");
                   } else {
                     toast.error("Vínculo inválido ou pagamento já utilizado.");
                   }
                 }}
               >
-                {cardPlan ? "Vincular à fatura" : "Vincular ao extrato"}
+                Vincular movimento
               </Button>
             </div>
           )}
