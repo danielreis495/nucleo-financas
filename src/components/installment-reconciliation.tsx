@@ -2,7 +2,10 @@ import { useState } from "react";
 import { Link2, ReceiptText } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { installmentNamesMatch } from "@/lib/installment-rules";
+import {
+  candidateIsOutsideCurrentPlan,
+  installmentNamesMatch,
+} from "@/lib/installment-rules";
 import { natureOf } from "@/lib/movement-nature";
 import { formatBRL, formatShortDate } from "@/lib/money";
 import { useFinanceStore } from "@/lib/store";
@@ -24,10 +27,11 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
     ? state.transactions
         .filter(
           (row) =>
-            !row.installmentId &&
+            candidateIsOutsideCurrentPlan(plan.id, row.installmentId) &&
             row.status === "posted" &&
             row.type === "expense" &&
             natureOf(row) === "budget" &&
+            !row.reconciledPaymentId &&
             Math.round(row.amount * 100) === Math.round(selected.amount * 100) &&
             installmentNamesMatch(row.merchant, [plan.title, plan.merchant, selected.merchant]) &&
             !state.transactions.some((item) => item.reconciledPaymentId === row.id),

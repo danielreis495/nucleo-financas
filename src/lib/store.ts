@@ -20,7 +20,11 @@ import type {
   TxSource,
 } from "./types";
 import { CATEGORIES } from "./categories";
-import { allowsManualInstallmentPayment, installmentNamesMatch } from "./installment-rules";
+import {
+  allowsManualInstallmentPayment,
+  candidateIsOutsideCurrentPlan,
+  installmentNamesMatch,
+} from "./installment-rules";
 import { natureOf, reconcileTransactionNatures } from "./movement-nature";
 import { createSeedState } from "./seed";
 import { paymentMethodForItem, type ImportOrigin } from "./transaction-origin";
@@ -276,7 +280,8 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
             installment.manualPayment ||
             installment.reconciledPaymentId ||
             !payment ||
-            payment.installmentId ||
+            payment.reconciledPaymentId ||
+            !candidateIsOutsideCurrentPlan(plan.id, payment.installmentId) ||
             payment.status !== "posted" ||
             payment.type !== "expense" ||
             natureOf(payment) !== "budget" ||

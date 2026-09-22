@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   allowsManualInstallmentPayment,
+  candidateIsOutsideCurrentPlan,
   installmentNamesMatch,
 } from "./installment-rules.ts";
 
@@ -22,6 +23,12 @@ describe("installment reconciliation rules", () => {
       installmentNamesMatch("Mercado Central", ["Parcelamento de Fatura", "Banco Itaú"]),
       false,
     );
+  });
+
+  it("accepts a posted movement from another plan but not from the current plan", () => {
+    assert.equal(candidateIsOutsideCurrentPlan("plan-atual", undefined), true);
+    assert.equal(candidateIsOutsideCurrentPlan("plan-atual", "outro-plano"), true);
+    assert.equal(candidateIsOutsideCurrentPlan("plan-atual", "plan-atual"), false);
   });
 
   it("keeps manual payment confirmation disabled for card plans", () => {

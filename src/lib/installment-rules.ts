@@ -33,6 +33,13 @@ export function installmentNamesMatch(
   });
 }
 
+export function candidateIsOutsideCurrentPlan(
+  currentPlanId: string,
+  candidatePlanId: string | null | undefined,
+) {
+  return !candidatePlanId || candidatePlanId !== currentPlanId;
+}
+
 export function allowsManualInstallmentPayment(kind: InstallmentKind) {
   return kind !== "card";
 }
