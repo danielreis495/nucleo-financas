@@ -26,9 +26,13 @@ import { paymentMethodForItem, type ImportOrigin } from "./transaction-origin";
 import { uid, isoDate, todayIso, monthKey } from "./utils";
 
 type FinanceActions = {
-  confirmInstallmentPaid: (id: string, payment: { date: string; accountId: string } | null) => boolean;
+  confirmInstallmentPaid: (
+    id: string,
+    payment: { date: string; accountId: string } | null,
+  ) => boolean;
   updateInstallmentKind: (id: string, kind: InstallmentKind) => boolean;
   reconcileInstallment: (installmentId: string, paymentId: string | null) => boolean;
+  removeInstallmentPlan: (id: string) => boolean;
   hydrated: boolean;
   viewMonth: string;
   setHydrated: (v: boolean) => void;
@@ -133,7 +137,8 @@ function expandNewPlan(input: {
   const today = todayIso();
   const rows: Transaction[] = [];
   const current = input.currentIndex ?? 1;
-  const cardByBill = input.origin?.originKind === "credit_card" && Boolean(input.origin.competenceMonth);
+  const cardByBill =
+    input.origin?.originKind === "credit_card" && Boolean(input.origin.competenceMonth);
   const firstIndex = cardByBill ? current : 1;
 
   for (let index = firstIndex; index <= input.totalCount; index++) {
@@ -190,26 +195,54 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
     (set, get) => ({
       ...createSeedState(),
       updateInstallmentKind: (id, kind) => {
-        if (!["loan", "card", "other"].includes(kind) || !get().plans.some((p) => p.id === id)) return false;
+        if (!["loan", "card", "other"].includes(kind) || !get().plans.some((p) => p.id === id))
+          return false;
         // Tipo do cadastro não reclassifica movimentos já importados de uma fatura.
-        set({ plans: get().plans.map((p) => p.id === id ? { ...p, kind } : p), advice: null });
+        set({ plans: get().plans.map((p) => (p.id === id ? { ...p, kind } : p)), advice: null });
         return true;
       },
       confirmInstallmentPaid: (id, payment) => {
         const row = get().transactions.find((t) => t.id === id);
-        if (!row?.installmentId || row.originKind === "credit_card" || row.reconciledPaymentId || row.type !== "expense" || natureOf(row) !== "budget") return false;
+        if (
+          !row?.installmentId ||
+          row.originKind === "credit_card" ||
+          row.reconciledPaymentId ||
+          row.type !== "expense" ||
+          natureOf(row) !== "budget"
+        )
+          return false;
         if (payment) {
-          if (row.manualPayment || !/^\d{4}-\d{2}-\d{2}$/.test(payment.date) ||
-              !Number.isFinite(Date.parse(payment.date)) || new Date(payment.date).toISOString().slice(0, 10) !== payment.date || payment.date > todayIso() ||
-              !get().accounts.some((a) => a.id === payment.accountId && a.active)) return false;
+          if (
+            row.manualPayment ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(payment.date) ||
+            !Number.isFinite(Date.parse(payment.date)) ||
+            new Date(payment.date).toISOString().slice(0, 10) !== payment.date ||
+            payment.date > todayIso() ||
+            !get().accounts.some((a) => a.id === payment.accountId && a.active)
+          )
+            return false;
         } else if (!row.manualPayment) return false;
         const at = new Date().toISOString();
-        const updated: Transaction = payment ? {
-          ...row, date: payment.date, accountId: payment.accountId, status: "posted",
-          manualPayment: { confirmedAt: at, previous: { date: row.date, status: row.status, accountId: row.accountId } },
-        } : { ...row, ...row.manualPayment!.previous, manualPayment: undefined };
-        updated.reconciliationHistory = [...(row.reconciliationHistory ?? []), { paymentId: id, at, action: payment ? "manual" : "undo_manual" }];
-        set({ transactions: get().transactions.map((t) => t.id === id ? updated : t), advice: null });
+        const updated: Transaction = payment
+          ? {
+              ...row,
+              date: payment.date,
+              accountId: payment.accountId,
+              status: "posted",
+              manualPayment: {
+                confirmedAt: at,
+                previous: { date: row.date, status: row.status, accountId: row.accountId },
+              },
+            }
+          : { ...row, ...row.manualPayment!.previous, manualPayment: undefined };
+        updated.reconciliationHistory = [
+          ...(row.reconciliationHistory ?? []),
+          { paymentId: id, at, action: payment ? "manual" : "undo_manual" },
+        ];
+        set({
+          transactions: get().transactions.map((t) => (t.id === id ? updated : t)),
+          advice: null,
+        });
         return true;
       },
       reconcileInstallment: (installmentId, paymentId) => {
@@ -218,17 +251,52 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         if (!installment?.installmentId || installment.originKind === "credit_card") return false;
         if (paymentId) {
           const payment = rows.find((row) => row.id === paymentId);
-          if (installment.manualPayment || installment.reconciledPaymentId || !payment || payment.installmentId ||
-              payment.status !== "posted" || payment.type !== "expense" ||
-              payment.originKind === "credit_card" || natureOf(payment) !== "budget" ||
-              Math.round(payment.amount * 100) !== Math.round(installment.amount * 100) ||
-              rows.some((row) => row.reconciledPaymentId === paymentId)) return false;
+          if (
+            installment.manualPayment ||
+            installment.reconciledPaymentId ||
+            !payment ||
+            payment.installmentId ||
+            payment.status !== "posted" ||
+            payment.type !== "expense" ||
+            payment.originKind === "credit_card" ||
+            natureOf(payment) !== "budget" ||
+            Math.round(payment.amount * 100) !== Math.round(installment.amount * 100) ||
+            rows.some((row) => row.reconciledPaymentId === paymentId)
+          )
+            return false;
         } else if (!installment.reconciledPaymentId) return false;
-        const event = { paymentId: paymentId ?? installment.reconciledPaymentId!, at: new Date().toISOString(), action: paymentId ? "link" as const : "unlink" as const };
-        set({ transactions: rows.map((row) => row.id === installmentId ? {
-          ...row, reconciledPaymentId: paymentId ?? undefined,
-          reconciliationHistory: [...(row.reconciliationHistory ?? []), event],
-        } : row), advice: null });
+        const event = {
+          paymentId: paymentId ?? installment.reconciledPaymentId!,
+          at: new Date().toISOString(),
+          action: paymentId ? ("link" as const) : ("unlink" as const),
+        };
+        set({
+          transactions: rows.map((row) =>
+            row.id === installmentId
+              ? {
+                  ...row,
+                  reconciledPaymentId: paymentId ?? undefined,
+                  reconciliationHistory: [...(row.reconciliationHistory ?? []), event],
+                }
+              : row,
+          ),
+          advice: null,
+        });
+        return true;
+      },
+      removeInstallmentPlan: (id) => {
+        const state = get();
+        if (!state.plans.some((plan) => plan.id === id)) return false;
+
+        set({
+          plans: state.plans.filter((plan) => plan.id !== id),
+          // Pagamentos importados não possuem installmentId e são preservados.
+          // Somente as parcelas geradas pelo plano (e seus vínculos) são removidas.
+          transactions: state.transactions.filter(
+            (transaction) => transaction.installmentId !== id,
+          ),
+          advice: null,
+        });
         return true;
       },
       hydrated: false,
@@ -253,8 +321,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           geminiKey: get().geminiKey,
           customCategories: get().customCategories,
         }),
-      clearFinancialHistory: () =>
-        set({ transactions: [], plans: [], advice: null, demo: false }),
+      clearFinancialHistory: () => set({ transactions: [], plans: [], advice: null, demo: false }),
       reclassifyMovements: () =>
         set({ transactions: reconcileTransactionNatures(get().transactions), advice: null }),
       setHouseholdName: (householdName) => set({ householdName }),
@@ -333,20 +400,59 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         set({
           transactions: get().transactions.map((t) => {
             const linked = t.reconciledPaymentId && (t.id === id || t.reconciledPaymentId === id);
-            const next = t.id === id ? { ...t, ...patch, manualPayment: undefined,
-              reconciliationHistory: t.manualPayment ? [...(t.reconciliationHistory ?? []), { paymentId: id, at: new Date().toISOString(), action: "undo_manual" as const }] : t.reconciliationHistory,
-            } : t;
-            return linked ? { ...next, reconciledPaymentId: undefined,
-              reconciliationHistory: [...(t.reconciliationHistory ?? []), { paymentId: t.reconciledPaymentId!, at: new Date().toISOString(), action: "unlink" as const }],
-            } : next;
+            const next =
+              t.id === id
+                ? {
+                    ...t,
+                    ...patch,
+                    manualPayment: undefined,
+                    reconciliationHistory: t.manualPayment
+                      ? [
+                          ...(t.reconciliationHistory ?? []),
+                          {
+                            paymentId: id,
+                            at: new Date().toISOString(),
+                            action: "undo_manual" as const,
+                          },
+                        ]
+                      : t.reconciliationHistory,
+                  }
+                : t;
+            return linked
+              ? {
+                  ...next,
+                  reconciledPaymentId: undefined,
+                  reconciliationHistory: [
+                    ...(t.reconciliationHistory ?? []),
+                    {
+                      paymentId: t.reconciledPaymentId!,
+                      at: new Date().toISOString(),
+                      action: "unlink" as const,
+                    },
+                  ],
+                }
+              : next;
           }),
           advice: null,
         }),
       removeTransaction: (id) =>
-        set({ transactions: get().transactions.filter((t) => t.id !== id).map((t) => t.reconciledPaymentId === id ? {
-          ...t, reconciledPaymentId: undefined,
-          reconciliationHistory: [...(t.reconciliationHistory ?? []), { paymentId: id, at: new Date().toISOString(), action: "unlink" as const }],
-        } : t), advice: null }),
+        set({
+          transactions: get()
+            .transactions.filter((t) => t.id !== id)
+            .map((t) =>
+              t.reconciledPaymentId === id
+                ? {
+                    ...t,
+                    reconciledPaymentId: undefined,
+                    reconciliationHistory: [
+                      ...(t.reconciliationHistory ?? []),
+                      { paymentId: id, at: new Date().toISOString(), action: "unlink" as const },
+                    ],
+                  }
+                : t,
+            ),
+          advice: null,
+        }),
       restoreTransaction: (tx) => {
         if (get().transactions.some((t) => t.id === tx.id)) return;
         set({ transactions: [tx, ...get().transactions], advice: null });
@@ -379,7 +485,13 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
       },
       addPlannedIncome: ({ label, amount, date }) => {
         const trimmed = label.trim();
-        if (!trimmed || !Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+        if (
+          !trimmed ||
+          !Number.isFinite(amount) ||
+          amount <= 0 ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(date)
+        )
+          return;
         const item: PlannedIncome = {
           id: uid(),
           label: trimmed,
@@ -405,13 +517,17 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         for (const item of selected) {
           const nature = natureOf(item);
           const paymentMethod = origin ? paymentMethodForItem(item, origin) : undefined;
-          const cardByBill = origin?.originKind === "credit_card" && Boolean(origin.competenceMonth);
+          const cardByBill =
+            origin?.originKind === "credit_card" && Boolean(origin.competenceMonth);
 
           if (item.installment && item.installment.total > 1 && nature === "budget") {
             const planId = uid();
             let startDate: string;
             if (cardByBill && origin?.competenceMonth) {
-              const firstMonth = addMonthsKey(origin.competenceMonth, -(item.installment.current - 1));
+              const firstMonth = addMonthsKey(
+                origin.competenceMonth,
+                -(item.installment.current - 1),
+              );
               startDate = `${firstMonth}-01`;
             } else {
               const start = new Date(item.date + "T12:00:00");

@@ -26,6 +26,7 @@ type ExtratoSearch = {
   person?: string;
   type?: "expense" | "income";
   issue?: "duplicate" | "unidentified";
+  q?: string;
 };
 
 type ScopeFilter = "all" | "budget" | "excluded";
@@ -36,9 +37,8 @@ export const Route = createFileRoute("/extrato")({
     person: typeof search.person === "string" ? search.person : undefined,
     type: search.type === "expense" || search.type === "income" ? search.type : undefined,
     issue:
-      search.issue === "duplicate" || search.issue === "unidentified"
-        ? search.issue
-        : undefined,
+      search.issue === "duplicate" || search.issue === "unidentified" ? search.issue : undefined,
+    q: typeof search.q === "string" ? search.q : undefined,
   }),
   component: ExtratoPage,
 });
@@ -53,7 +53,7 @@ function normalizeSearch(value: string) {
 }
 
 function ExtratoPage() {
-  const { cat, person, type, issue } = Route.useSearch();
+  const { cat, person, type, issue, q } = Route.useSearch();
   const month = useFinanceStore((s) => s.viewMonth);
   const setMonth = useFinanceStore((s) => s.setViewMonth);
   const state = useFinanceStore();
@@ -65,26 +65,24 @@ function ExtratoPage() {
   const [txType, setTxType] = useState<Transaction["type"] | "all">(type ?? "all");
   const [scope, setScope] = useState<ScopeFilter>("all");
   const [origin, setOrigin] = useState<string | "all">("all");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(q ?? "");
   const [editing, setEditing] = useState<Transaction | null>(null);
 
   useEffect(() => setPersonId(person ?? "all"), [person]);
   useEffect(() => setCategory(cat ?? "all"), [cat]);
   useEffect(() => setTxType(type ?? "all"), [type]);
+  useEffect(() => setQuery(q ?? ""), [q]);
 
   useEffect(() => {
     setOrigin("all");
-    setQuery("");
-  }, [month]);
+    setQuery(q ?? "");
+  }, [month, q]);
 
   const expenseCats = categoriesFor("gasto", custom);
   const incomeCats = categoriesFor("entrada", custom);
   const filterCats = [...expenseCats, ...incomeCats];
 
-  const monthRows = useMemo(
-    () => monthTransactions(state, month, true, true),
-    [state, month],
-  );
+  const monthRows = useMemo(() => monthTransactions(state, month, true, true), [state, month]);
 
   const originOptions = useMemo(() => {
     const labels = new Set<string>();
@@ -284,14 +282,22 @@ function ExtratoPage() {
 
         <div className="border-t border-line px-4 pb-4 pt-3">
           <FilterSection title="Tipo de movimento">
-            <FilterChip active={scope === "all"} onClick={() => setScope("all")}>Todos</FilterChip>
-            <FilterChip active={scope === "budget"} onClick={() => setScope("budget")}>Orçamento</FilterChip>
-            <FilterChip active={scope === "excluded"} onClick={() => setScope("excluded")}>Fora do orçamento</FilterChip>
+            <FilterChip active={scope === "all"} onClick={() => setScope("all")}>
+              Todos
+            </FilterChip>
+            <FilterChip active={scope === "budget"} onClick={() => setScope("budget")}>
+              Orçamento
+            </FilterChip>
+            <FilterChip active={scope === "excluded"} onClick={() => setScope("excluded")}>
+              Fora do orçamento
+            </FilterChip>
           </FilterSection>
 
           {originOptions.length > 0 ? (
             <FilterSection title="Origem">
-              <FilterChip active={origin === "all"} onClick={() => setOrigin("all")}>Todas</FilterChip>
+              <FilterChip active={origin === "all"} onClick={() => setOrigin("all")}>
+                Todas
+              </FilterChip>
               {originOptions.map((label) => (
                 <FilterChip key={label} active={origin === label} onClick={() => setOrigin(label)}>
                   {label}
@@ -301,7 +307,9 @@ function ExtratoPage() {
           ) : null}
 
           <FilterSection title="Pessoa">
-            <FilterChip active={personId === "all"} onClick={() => setPersonId("all")}>Todos</FilterChip>
+            <FilterChip active={personId === "all"} onClick={() => setPersonId("all")}>
+              Todos
+            </FilterChip>
             {state.people.map((p) => (
               <FilterChip key={p.id} active={personId === p.id} onClick={() => setPersonId(p.id)}>
                 {p.name}
@@ -310,9 +318,15 @@ function ExtratoPage() {
           </FilterSection>
 
           <FilterSection title="Categoria">
-            <FilterChip active={category === "all"} onClick={() => setCategory("all")}>Todas</FilterChip>
+            <FilterChip active={category === "all"} onClick={() => setCategory("all")}>
+              Todas
+            </FilterChip>
             {filterCats.map((item) => (
-              <FilterChip key={item.id} active={category === item.id} onClick={() => setCategory(item.id)}>
+              <FilterChip
+                key={item.id}
+                active={category === item.id}
+                onClick={() => setCategory(item.id)}
+              >
                 {item.label}
               </FilterChip>
             ))}
@@ -343,8 +357,14 @@ function ExtratoPage() {
               <section key={date} className="px-5 pb-4">
                 <div className="mb-2 flex items-baseline justify-between gap-3 px-1">
                   <h2 className="text-xs font-medium text-muted">{formatLongDate(date)}</h2>
-                  <span className={cn("text-xs tabular-nums", dayTotal < 0 ? "text-muted" : "text-income")}>
-                    {dayTotal > 0 ? "+" : ""}{formatBRL(dayTotal)}
+                  <span
+                    className={cn(
+                      "text-xs tabular-nums",
+                      dayTotal < 0 ? "text-muted" : "text-income",
+                    )}
+                  >
+                    {dayTotal > 0 ? "+" : ""}
+                    {formatBRL(dayTotal)}
                   </span>
                 </div>
 
@@ -382,13 +402,9 @@ function ExtratoPage() {
                               <span className="mt-0.5 block truncate text-xs text-muted">
                                 {secondary}
                               </span>
-                              {(originLabel || t.paymentMethod || scheduled) ? (
+                              {originLabel || t.paymentMethod || scheduled ? (
                                 <span className="mt-0.5 block truncate text-[10px] text-subtle">
-                                  {[
-                                    scheduled ? "Agendado" : null,
-                                    originLabel,
-                                    t.paymentMethod,
-                                  ]
+                                  {[scheduled ? "Agendado" : null, originLabel, t.paymentMethod]
                                     .filter(Boolean)
                                     .join(" · ")}
                                 </span>
@@ -403,7 +419,8 @@ function ExtratoPage() {
                                 scheduled && "text-muted",
                               )}
                             >
-                              {t.type === "income" ? "+" : "−"}{formatBRL(t.amount)}
+                              {t.type === "income" ? "+" : "−"}
+                              {formatBRL(t.amount)}
                             </span>
                           </button>
                         </SwipeRow>
@@ -433,11 +450,12 @@ function MovementIcon({
   nature: TxNature;
   scheduled: boolean;
 }) {
-  const Icon = nature === "transfer" || nature === "card_payment"
-    ? ArrowLeftRight
-    : type === "income"
-      ? ArrowDownLeft
-      : ArrowUpRight;
+  const Icon =
+    nature === "transfer" || nature === "card_payment"
+      ? ArrowLeftRight
+      : type === "income"
+        ? ArrowDownLeft
+        : ArrowUpRight;
 
   return (
     <span
