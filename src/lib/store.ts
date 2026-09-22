@@ -20,6 +20,7 @@ import type {
   TxSource,
 } from "./types";
 import { CATEGORIES } from "./categories";
+import { allowsManualInstallmentPayment, originMatchesInstallmentKind } from "./installment-rules";
 import { natureOf, reconcileTransactionNatures } from "./movement-nature";
 import { createSeedState } from "./seed";
 import { paymentMethodForItem, type ImportOrigin } from "./transaction-origin";
@@ -31,6 +32,7 @@ type FinanceActions = {
     payment: { date: string; accountId: string } | null,
   ) => boolean;
   updateInstallmentKind: (id: string, kind: InstallmentKind) => boolean;
+  updateInstallmentCategory: (id: string, category: CategoryId) => boolean;
   reconcileInstallment: (installmentId: string, paymentId: string | null) => boolean;
   removeInstallmentPlan: (id: string) => boolean;
   hydrated: boolean;
@@ -201,11 +203,26 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         set({ plans: get().plans.map((p) => (p.id === id ? { ...p, kind } : p)), advice: null });
         return true;
       },
+      updateInstallmentCategory: (id, category) => {
+        const state = get();
+        if (!category || !state.plans.some((plan) => plan.id === id)) return false;
+        set({
+          plans: state.plans.map((plan) => (plan.id === id ? { ...plan, category } : plan)),
+          transactions: state.transactions.map((transaction) =>
+            transaction.installmentId === id ? { ...transaction, category } : transaction,
+          ),
+          advice: null,
+        });
+        return true;
+      },
       confirmInstallmentPaid: (id, payment) => {
         const row = get().transactions.find((t) => t.id === id);
+        const plan = row?.installmentId
+          ? get().plans.find((item) => item.id === row.installmentId)
+          : undefined;
         if (
           !row?.installmentId ||
-          row.originKind === "credit_card" ||
+          !plan ||
           row.reconciledPaymentId ||
           row.type !== "expense" ||
           natureOf(row) !== "budget"
@@ -213,6 +230,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
           return false;
         if (payment) {
           if (
+            !allowsManualInstallmentPayment(plan.kind) ||
             row.manualPayment ||
             !/^\d{4}-\d{2}-\d{2}$/.test(payment.date) ||
             !Number.isFinite(Date.parse(payment.date)) ||
@@ -248,7 +266,10 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
       reconcileInstallment: (installmentId, paymentId) => {
         const rows = get().transactions;
         const installment = rows.find((row) => row.id === installmentId);
-        if (!installment?.installmentId || installment.originKind === "credit_card") return false;
+        const plan = installment?.installmentId
+          ? get().plans.find((item) => item.id === installment.installmentId)
+          : undefined;
+        if (!installment?.installmentId || !plan) return false;
         if (paymentId) {
           const payment = rows.find((row) => row.id === paymentId);
           if (
@@ -258,7 +279,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
             payment.installmentId ||
             payment.status !== "posted" ||
             payment.type !== "expense" ||
-            payment.originKind === "credit_card" ||
+            !originMatchesInstallmentKind(plan.kind, payment.originKind) ||
             natureOf(payment) !== "budget" ||
             Math.round(payment.amount * 100) !== Math.round(installment.amount * 100) ||
             rows.some((row) => row.reconciledPaymentId === paymentId)

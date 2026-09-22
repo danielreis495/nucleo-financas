@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link2, ReceiptText } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { originMatchesInstallmentKind } from "@/lib/installment-rules";
 import { natureOf } from "@/lib/movement-nature";
 import { formatBRL, formatShortDate } from "@/lib/money";
 import { useFinanceStore } from "@/lib/store";
@@ -16,8 +17,10 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
   const [accountId, setAccountId] = useState("");
 
   const rows = state.transactions.filter((row) => row.installmentId === planId);
+  const plan = state.plans.find((item) => item.id === planId);
+  const cardPlan = plan?.kind === "card";
   const selected = rows.find((row) => row.id === installmentId);
-  const candidates = selected
+  const candidates = selected && plan
     ? state.transactions
         .filter(
           (row) =>
@@ -25,7 +28,7 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
             row.status === "posted" &&
             row.type === "expense" &&
             natureOf(row) === "budget" &&
-            row.originKind !== "credit_card" &&
+            originMatchesInstallmentKind(plan.kind, row.originKind) &&
             Math.round(row.amount * 100) === Math.round(selected.amount * 100) &&
             !state.transactions.some((item) => item.reconciledPaymentId === row.id),
         )
@@ -45,7 +48,9 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
       </summary>
 
       <p className="mt-2 text-xs leading-relaxed text-muted">
-        Escolha uma parcela e confirme como ela foi paga. Valor igual sozinho não comprova a correspondência.
+        {cardPlan
+          ? "Escolha uma parcela e vincule à cobrança correspondente da fatura. Valor igual sozinho não comprova a correspondência."
+          : "Escolha uma parcela e confirme como ela foi paga. Valor igual sozinho não comprova a correspondência."}
       </p>
 
       <label className="mt-3 block text-xs font-medium text-muted">
@@ -69,11 +74,7 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
         </select>
       </label>
 
-      {selected?.originKind === "credit_card" ? (
-        <p className="mt-3 rounded-lg bg-primary-soft px-3 py-2.5 text-xs leading-relaxed text-primary">
-          Esta parcela pertence a cartão e deve ser conferida pela fatura.
-        </p>
-      ) : selected?.manualPayment ? (
+      {selected?.manualPayment ? (
         <div className="mt-3 rounded-lg bg-primary-soft p-3 text-xs text-primary">
           <p>
             Pagamento confirmado em {formatShortDate(selected.date)} ·{" "}
@@ -101,34 +102,41 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
             }
           }}
         >
-          Desfazer vínculo com extrato
+          {cardPlan ? "Desfazer vínculo com a fatura" : "Desfazer vínculo com extrato"}
         </Button>
       ) : selected ? (
         <>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setManual(true);
-                setPaidDate(selected.date > todayIso() ? todayIso() : selected.date);
-                setAccountId(selected.accountId ?? "");
-              }}
-              className="rounded-lg bg-primary-soft px-3 py-3 text-left text-xs font-medium text-primary"
-            >
-              Já paguei
-              <span className="mt-0.5 block text-[10px] font-normal text-primary/75">Confirmar manualmente</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setManual(false)}
-              className="rounded-lg bg-elevated px-3 py-3 text-left text-xs font-medium shadow-[var(--shadow-border)]"
-            >
-              Está no extrato
-              <span className="mt-0.5 block text-[10px] font-normal text-muted">Vincular pagamento</span>
-            </button>
-          </div>
+          {cardPlan ? (
+            <p className="mt-3 rounded-lg bg-primary-soft px-3 py-2.5 text-xs leading-relaxed text-primary">
+              Vincule esta parcela à cobrança correspondente importada da fatura. O lançamento real
+              ficará no orçamento e a previsão deixará de ser contada em duplicidade.
+            </p>
+          ) : (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setManual(true);
+                  setPaidDate(selected.date > todayIso() ? todayIso() : selected.date);
+                  setAccountId(selected.accountId ?? "");
+                }}
+                className="rounded-lg bg-primary-soft px-3 py-3 text-left text-xs font-medium text-primary"
+              >
+                Já paguei
+                <span className="mt-0.5 block text-[10px] font-normal text-primary/75">Confirmar manualmente</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setManual(false)}
+                className="rounded-lg bg-elevated px-3 py-3 text-left text-xs font-medium shadow-[var(--shadow-border)]"
+              >
+                Está no extrato
+                <span className="mt-0.5 block text-[10px] font-normal text-muted">Vincular pagamento</span>
+              </button>
+            </div>
+          )}
 
-          {manual ? (
+          {!cardPlan && manual ? (
             <div className="mt-3 rounded-lg bg-elevated p-3 shadow-[var(--shadow-border)]">
               <p className="text-xs leading-relaxed text-muted">
                 Confirma {formatBRL(selected.amount)} sem criar uma segunda despesa.
@@ -180,7 +188,7 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
           ) : (
             <div className="mt-3">
               <label className="block text-xs font-medium text-muted">
-                Pagamento encontrado
+                {cardPlan ? "Cobrança encontrada" : "Pagamento encontrado"}
                 <select
                   className="mt-1 h-10 w-full rounded-lg bg-elevated px-3 text-sm shadow-[var(--shadow-border)]"
                   value={paymentId}
@@ -200,7 +208,9 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
 
               {!candidates.length ? (
                 <p className="mt-2 text-xs leading-relaxed text-muted">
-                  Nenhum pagamento integral com o mesmo valor está disponível no extrato.
+                  {cardPlan
+                    ? "Nenhuma cobrança de cartão com o mesmo valor está disponível para vínculo."
+                    : "Nenhum pagamento integral com o mesmo valor está disponível no extrato."}
                 </p>
               ) : null}
 
@@ -219,13 +229,13 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
                 onClick={() => {
                   if (state.reconcileInstallment(selected.id, paymentId)) {
                     setPaymentId("");
-                    toast.success("Pagamento conciliado.");
+                    toast.success(cardPlan ? "Parcela conciliada com a fatura." : "Pagamento conciliado.");
                   } else {
                     toast.error("Vínculo inválido ou pagamento já utilizado.");
                   }
                 }}
               >
-                Vincular ao extrato
+                {cardPlan ? "Vincular à fatura" : "Vincular ao extrato"}
               </Button>
             </div>
           )}
