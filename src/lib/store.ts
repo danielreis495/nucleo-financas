@@ -22,8 +22,7 @@ import type {
 import { CATEGORIES } from "./categories";
 import {
   allowsManualInstallmentPayment,
-  candidateIsOutsideCurrentPlan,
-  installmentNamesMatch,
+  isInstallmentReconciliationCandidate,
 } from "./installment-rules";
 import { natureOf, reconcileTransactionNatures } from "./movement-nature";
 import { createSeedState } from "./seed";
@@ -280,16 +279,11 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
             installment.manualPayment ||
             installment.reconciledPaymentId ||
             !payment ||
-            payment.reconciledPaymentId ||
-            !candidateIsOutsideCurrentPlan(plan.id, payment.installmentId) ||
-            payment.status !== "posted" ||
-            payment.type !== "expense" ||
-            natureOf(payment) !== "budget" ||
-            Math.round(payment.amount * 100) !== Math.round(installment.amount * 100) ||
-            !installmentNamesMatch(payment.merchant, [
+            !isInstallmentReconciliationCandidate(installment, payment, [
               plan.title,
               plan.merchant,
               installment.merchant,
+              installment.description,
             ]) ||
             rows.some((row) => row.reconciledPaymentId === paymentId)
           )

@@ -1,4 +1,4 @@
-import type { InstallmentKind } from "./types";
+import type { InstallmentKind, Transaction } from "./types";
 
 function nameTokens(value: string | undefined) {
   return (value ?? "")
@@ -12,8 +12,10 @@ function nameTokens(value: string | undefined) {
 }
 
 function tokensMatch(left: string, right: string) {
-  return left === right ||
-    (left.length >= 5 && right.length >= 5 && (left.startsWith(right) || right.startsWith(left)));
+  return (
+    left === right ||
+    (left.length >= 5 && right.length >= 5 && (left.startsWith(right) || right.startsWith(left)))
+  );
 }
 
 export function installmentNamesMatch(
@@ -33,11 +35,27 @@ export function installmentNamesMatch(
   });
 }
 
-export function candidateIsOutsideCurrentPlan(
-  currentPlanId: string,
-  candidatePlanId: string | null | undefined,
+type ReconciliationTransaction = Pick<
+  Transaction,
+  "id" | "amount" | "description" | "merchant" | "reconciledPaymentId" | "status" | "type"
+>;
+
+export function isInstallmentReconciliationCandidate(
+  installment: Pick<Transaction, "id" | "amount">,
+  candidate: ReconciliationTransaction,
+  references: Array<string | undefined>,
 ) {
-  return !candidatePlanId || candidatePlanId !== currentPlanId;
+  if (
+    candidate.id === installment.id ||
+    candidate.reconciledPaymentId ||
+    candidate.status !== "posted" ||
+    candidate.type !== "expense" ||
+    Math.round(candidate.amount * 100) !== Math.round(installment.amount * 100)
+  ) {
+    return false;
+  }
+
+  return installmentNamesMatch(`${candidate.merchant} ${candidate.description}`, references);
 }
 
 export function allowsManualInstallmentPayment(kind: InstallmentKind) {

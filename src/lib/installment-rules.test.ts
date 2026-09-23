@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   allowsManualInstallmentPayment,
-  candidateIsOutsideCurrentPlan,
+  isInstallmentReconciliationCandidate,
   installmentNamesMatch,
 } from "./installment-rules.ts";
 
@@ -25,10 +25,40 @@ describe("installment reconciliation rules", () => {
     );
   });
 
-  it("accepts a posted movement from another plan but not from the current plan", () => {
-    assert.equal(candidateIsOutsideCurrentPlan("plan-atual", undefined), true);
-    assert.equal(candidateIsOutsideCurrentPlan("plan-atual", "outro-plano"), true);
-    assert.equal(candidateIsOutsideCurrentPlan("plan-atual", "plan-atual"), false);
+  it("accepts a matching movement from another date or the same plan", () => {
+    const installment = { id: "parcela-3", amount: 248.43 };
+    const candidate = {
+      id: "parcela-4",
+      amount: 248.43,
+      description: "Parcelamen fatura 04/04",
+      merchant: "Banco Itaú S.A.",
+      reconciledPaymentId: undefined,
+      status: "posted" as const,
+      type: "expense" as const,
+    };
+
+    assert.equal(
+      isInstallmentReconciliationCandidate(installment, candidate, ["PARCELAMEN FATURA"]),
+      true,
+    );
+  });
+
+  it("never offers the selected installment as its own movement", () => {
+    const installment = { id: "parcela-3", amount: 248.43 };
+    const candidate = {
+      id: "parcela-3",
+      amount: 248.43,
+      description: "Parcelamen fatura 03/04",
+      merchant: "Banco Itaú S.A.",
+      reconciledPaymentId: undefined,
+      status: "posted" as const,
+      type: "expense" as const,
+    };
+
+    assert.equal(
+      isInstallmentReconciliationCandidate(installment, candidate, ["PARCELAMEN FATURA"]),
+      false,
+    );
   });
 
   it("keeps manual payment confirmation disabled for card plans", () => {

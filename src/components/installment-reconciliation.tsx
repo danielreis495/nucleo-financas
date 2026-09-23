@@ -2,11 +2,7 @@ import { useState } from "react";
 import { Link2, ReceiptText } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  candidateIsOutsideCurrentPlan,
-  installmentNamesMatch,
-} from "@/lib/installment-rules";
-import { natureOf } from "@/lib/movement-nature";
+import { isInstallmentReconciliationCandidate } from "@/lib/installment-rules";
 import { formatBRL, formatShortDate } from "@/lib/money";
 import { useFinanceStore } from "@/lib/store";
 import { todayIso } from "@/lib/utils";
@@ -23,25 +19,24 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
   const plan = state.plans.find((item) => item.id === planId);
   const cardPlan = plan?.kind === "card";
   const selected = rows.find((row) => row.id === installmentId);
-  const candidates = selected && plan
-    ? state.transactions
-        .filter(
-          (row) =>
-            candidateIsOutsideCurrentPlan(plan.id, row.installmentId) &&
-            row.status === "posted" &&
-            row.type === "expense" &&
-            natureOf(row) === "budget" &&
-            !row.reconciledPaymentId &&
-            Math.round(row.amount * 100) === Math.round(selected.amount * 100) &&
-            installmentNamesMatch(row.merchant, [plan.title, plan.merchant, selected.merchant]) &&
-            !state.transactions.some((item) => item.reconciledPaymentId === row.id),
-        )
-        .sort(
-          (a, b) =>
-            Math.abs(Date.parse(a.date) - Date.parse(selected.date)) -
-            Math.abs(Date.parse(b.date) - Date.parse(selected.date)),
-        )
-    : [];
+  const candidates =
+    selected && plan
+      ? state.transactions
+          .filter(
+            (row) =>
+              isInstallmentReconciliationCandidate(selected, row, [
+                plan.title,
+                plan.merchant,
+                selected.merchant,
+                selected.description,
+              ]) && !state.transactions.some((item) => item.reconciledPaymentId === row.id),
+          )
+          .sort(
+            (a, b) =>
+              Math.abs(Date.parse(a.date) - Date.parse(selected.date)) -
+              Math.abs(Date.parse(b.date) - Date.parse(selected.date)),
+          )
+      : [];
   const payment = candidates.find((row) => row.id === paymentId);
 
   return (
@@ -52,8 +47,8 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
       </summary>
 
       <p className="mt-2 text-xs leading-relaxed text-muted">
-        O Núcleo procura pelo mesmo valor e por um nome semelhante. Tipo, categoria e origem não
-        são usados para bloquear a busca; confira o movimento antes de vinculá-lo.
+        O Núcleo procura pelo mesmo valor e por um nome semelhante. Data, tipo, classificação,
+        categoria e origem não bloqueiam a busca; confira o movimento antes de vinculá-lo.
       </p>
 
       <label className="mt-3 block text-xs font-medium text-muted">
@@ -70,8 +65,13 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
           <option value="">Selecione</option>
           {rows.map((row) => (
             <option key={row.id} value={row.id}>
-              {row.installmentIndex}/{row.installmentTotal} · {formatShortDate(row.date)} · {formatBRL(row.amount)} ·{" "}
-              {row.manualPayment ? "paga manualmente" : row.reconciledPaymentId ? "conciliada" : "a conferir"}
+              {row.installmentIndex}/{row.installmentTotal} · {formatShortDate(row.date)} ·{" "}
+              {formatBRL(row.amount)} ·{" "}
+              {row.manualPayment
+                ? "paga manualmente"
+                : row.reconciledPaymentId
+                  ? "conciliada"
+                  : "a conferir"}
             </option>
           ))}
         </select>
@@ -81,7 +81,9 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
         <div className="mt-3 rounded-lg bg-primary-soft p-3 text-xs text-primary">
           <p>
             Pagamento confirmado em {formatShortDate(selected.date)} ·{" "}
-            {state.accounts.find((account) => account.id === selected.accountId)?.name ?? "Conta indisponível"}.
+            {state.accounts.find((account) => account.id === selected.accountId)?.name ??
+              "Conta indisponível"}
+            .
           </p>
           <Button
             className="mt-3 w-full"
@@ -112,7 +114,7 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
           {cardPlan ? (
             <p className="mt-3 rounded-lg bg-primary-soft px-3 py-2.5 text-xs leading-relaxed text-primary">
               A classificação deste compromisso não interfere na busca. Ao vincular, o movimento
-              real permanece no orçamento e a previsão deixa de ser contada em duplicidade.
+              real é preservado e a previsão deixa de ser contada em duplicidade.
             </p>
           ) : (
             <div className="mt-3 grid grid-cols-2 gap-2">
@@ -126,7 +128,9 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
                 className="rounded-lg bg-primary-soft px-3 py-3 text-left text-xs font-medium text-primary"
               >
                 Já paguei
-                <span className="mt-0.5 block text-[10px] font-normal text-primary/75">Confirmar manualmente</span>
+                <span className="mt-0.5 block text-[10px] font-normal text-primary/75">
+                  Confirmar manualmente
+                </span>
               </button>
               <button
                 type="button"
@@ -134,7 +138,9 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
                 className="rounded-lg bg-elevated px-3 py-3 text-left text-xs font-medium shadow-[var(--shadow-border)]"
               >
                 Está no extrato
-                <span className="mt-0.5 block text-[10px] font-normal text-muted">Vincular pagamento</span>
+                <span className="mt-0.5 block text-[10px] font-normal text-muted">
+                  Vincular pagamento
+                </span>
               </button>
             </div>
           )}
@@ -221,7 +227,8 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
                 <div className="mt-2 flex items-start gap-2 rounded-lg bg-primary-soft px-3 py-2.5 text-xs text-primary">
                   <Link2 className="mt-0.5 size-3.5 shrink-0" />
                   <p>
-                    Vincular {payment.merchant} ({formatBRL(payment.amount)}) à parcela {selected.installmentIndex}.
+                    Vincular {payment.merchant} ({formatBRL(payment.amount)}) à parcela{" "}
+                    {selected.installmentIndex}.
                   </p>
                 </div>
               ) : null}
@@ -253,12 +260,14 @@ export function InstallmentReconciliation({ planId }: { planId: string }) {
           <div className="mt-2 space-y-1">
             {selected.reconciliationHistory.map((event, index) => (
               <p className="text-[10px] text-muted" key={index}>
-                {{
-                  link: "Vinculado",
-                  unlink: "Vínculo desfeito",
-                  manual: "Pagamento confirmado",
-                  undo_manual: "Confirmação desfeita",
-                }[event.action]}{" "}
+                {
+                  {
+                    link: "Vinculado",
+                    unlink: "Vínculo desfeito",
+                    manual: "Pagamento confirmado",
+                    undo_manual: "Confirmação desfeita",
+                  }[event.action]
+                }{" "}
                 · {new Date(event.at).toLocaleString("pt-BR")}
               </p>
             ))}
