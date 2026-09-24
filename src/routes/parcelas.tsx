@@ -246,6 +246,7 @@ function PlanCard({
         <div className="mt-2">
           <InstallmentReconciliation planId={plan.id} />
           <PlanKindEditor planId={plan.id} kind={plan.kind} />
+          <PlanCategoryEditor planId={plan.id} category={plan.category} />
           <DeletePlanButton planId={plan.id} title={plan.title} />
         </div>
       </details>
@@ -354,17 +355,31 @@ function PlanKindEditor({ planId, kind }: { planId: string; kind: InstallmentKin
     <details className="mt-2 rounded-lg bg-surface px-3 py-2.5 text-sm shadow-[var(--shadow-border)]">
       <summary className="cursor-pointer text-xs font-medium">Corrigir tipo do compromisso</summary>
       <p className="mt-2 text-xs leading-relaxed text-muted">
-        Altera somente o tipo. Valores, datas e pagamentos continuam preservados.
+        O tipo organiza o compromisso e define se ele aceita baixa manual. Ele não interfere na
+        busca de movimentos para conciliação.
       </p>
-      <select
-        className="mt-2 h-10 w-full rounded-lg bg-elevated px-3 text-sm shadow-[var(--shadow-border)]"
-        value={draft}
-        onChange={(event) => setDraft(event.target.value as InstallmentKind)}
-      >
-        <option value="card">Cartão</option>
-        <option value="loan">Empréstimo / financiamento</option>
-        <option value="other">Outro</option>
-      </select>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {(
+          [
+            ["card", "Cartão"],
+            ["loan", "Empréstimo / financiamento"],
+            ["other", "Outro"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setDraft(value)}
+            aria-pressed={draft === value}
+            className={cn(
+              "min-h-9 rounded-full px-3 text-xs font-medium",
+              draft === value ? "bg-primary text-primary-fg" : "bg-line text-fg",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <Button
         className="mt-2 w-full"
         variant="secondary"
@@ -374,6 +389,34 @@ function PlanKindEditor({ planId, kind }: { planId: string; kind: InstallmentKin
         }}
       >
         Salvar tipo
+      </Button>
+    </details>
+  );
+}
+
+function PlanCategoryEditor({ planId, category }: { planId: string; category: CategoryId }) {
+  const update = useFinanceStore((state) => state.updateInstallmentCategory);
+  const [draft, setDraft] = useState(category);
+
+  return (
+    <details className="mt-2 rounded-lg bg-surface px-3 py-2.5 text-sm shadow-[var(--shadow-border)]">
+      <summary className="cursor-pointer text-xs font-medium">Corrigir classificação</summary>
+      <p className="mt-2 text-xs leading-relaxed text-muted">
+        A nova categoria será aplicada ao parcelamento e a todas as parcelas geradas por ele.
+      </p>
+      <div className="mt-2">
+        <CategoryPicker value={draft} group="gasto" onChange={setDraft} />
+      </div>
+      <Button
+        className="mt-2 w-full"
+        variant="secondary"
+        disabled={draft === category}
+        onClick={() => {
+          if (update(planId, draft))
+            toast.success("Classificação atualizada em todas as parcelas.");
+        }}
+      >
+        Salvar classificação
       </Button>
     </details>
   );
