@@ -286,8 +286,13 @@ CONTRAPARTE:
 
 FATURA DE CARTÃO:
 - Um item por compra; não use o total da fatura como gasto.
+- Nunca junte, some ou compense duas linhas. Cada linha com data, estabelecimento e valor é um item separado.
+- Quando houver marcadores [COLUNA ESQUERDA] e [COLUNA DIREITA], termine uma coluna antes de ler a outra; lançamentos na mesma altura são compras diferentes.
+- Extraia somente os lançamentos cobrados na fatura atual.
+- Ignore completamente “Compras parceladas - próximas faturas”, “Próxima fatura”, “Demais faturas”, simulações e opções de parcelamento: são previsões, não cobranças atuais.
 - Data da compra, não vencimento. Ano de referência: ${data.today.slice(0, 4)}.
 - Parcela 03/10 => installment {current:3,total:10,kind:"card"}; amount é a parcela.
+- “PARCELAMENTO DE FATURA 04/04” é a parcela atual de um financiamento: expense + financing, installment 04/04, e entra uma única vez.
 - Estorno/crédito: type="income", nature="budget".
 - Preserve exatamente nomes de estabelecimentos.
 
