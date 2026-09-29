@@ -6,6 +6,7 @@ import { categoryLabel } from "@/lib/categories";
 import { rememberCategoryRule } from "@/lib/category-rules";
 import { rememberMerchantAlias } from "@/lib/merchant-aliases";
 import { isExpenseRefund, NATURE_LABEL, natureOf } from "@/lib/movement-nature";
+import { countsTowardCreditCardBillTotal } from "@/lib/invoice-rules";
 import { formatBRL, formatShortDate } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { useFinanceStore } from "@/lib/store";
@@ -61,7 +62,7 @@ export function CaptureReview({
     documentSummary?.kind === "credit_card_bill" && typeof documentSummary.billTotal === "number"
       ? documentSummary.billTotal
       : null;
-  const billItems = selected.filter((item) => natureOf(item) === "budget");
+  const billItems = selected.filter((item) => countsTowardCreditCardBillTotal(natureOf(item)));
   const billNetOutflow = billItems.reduce(
     (total, item) => total + (item.type === "income" ? -item.amount : item.amount),
     0,
