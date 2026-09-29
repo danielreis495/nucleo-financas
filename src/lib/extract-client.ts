@@ -1,6 +1,7 @@
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { validateImportBatch } from "./import-batch";
+import { linesFromPdfItems, removeFutureCardInvoiceProjection } from "./pdf-layout";
 
 export type PreparedDocument = {
   text?: string;
@@ -55,34 +56,6 @@ async function compressImage(file: Blob, max = 1600, quality = 0.82) {
   return blobToBase64(blob);
 }
 
-function linesFromPdfItems(items: unknown[]) {
-  const rows: { y: number; parts: { x: number; str: string }[] }[] = [];
-  for (const raw of items) {
-    if (!raw || typeof raw !== "object" || !("str" in raw)) continue;
-    const item = raw as { str: string; transform?: number[] };
-    if (!item.str.trim()) continue;
-    const x = item.transform?.[4] ?? 0;
-    const y = item.transform?.[5] ?? 0;
-    let row = rows.find((r) => Math.abs(r.y - y) <= 4);
-    if (!row) {
-      row = { y, parts: [] };
-      rows.push(row);
-    }
-    row.parts.push({ x, str: item.str });
-  }
-  rows.sort((a, b) => b.y - a.y);
-  return rows
-    .map((r) =>
-      r.parts
-        .sort((a, b) => a.x - b.x)
-        .map((p) => p.str)
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim(),
-    )
-    .filter(Boolean);
-}
-
 async function canvasToJpeg(canvas: HTMLCanvasElement, quality: number) {
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
@@ -127,7 +100,9 @@ async function preparePdf(file: File): Promise<PreparedDocument> {
   for (let i = 1; i <= pageCount; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    const lines = linesFromPdfItems(content.items);
+    const lines = removeFutureCardInvoiceProjection(
+      linesFromPdfItems(content.items, page.getViewport({ scale: 1 }).width),
+    );
     const pageText = lines.join("\n").trim();
     if (pageText) {
       textParts.push(`--- página ${i} ---\n${pageText}`);
