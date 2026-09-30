@@ -44,7 +44,7 @@ function normalizeText(value: string) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/\b\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b/g, " ")
+    .replace(/\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/g, " ")
     .replace(/\b\d+\/\d+\b/g, " ")
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
@@ -71,7 +71,9 @@ function jaccard(a: string[], b: string[]) {
   return union ? shared / union : 0;
 }
 
-function textSimilarity(item: ExtractedItem, transaction: Transaction) {
+type NamedMovement = Pick<ExtractedItem | Transaction, "merchant" | "description">;
+
+function textSimilarity(item: NamedMovement, transaction: NamedMovement) {
   const itemTexts = textVariants(item);
   const txTexts = textVariants(transaction);
   let best = 0;
