@@ -1,5 +1,6 @@
 import { cashPositionForMonth } from "./cash-position";
 import { categoryLabel } from "./categories";
+import { suspiciousCardCreditDuplicateGroups } from "./duplicate-rules";
 import { cashFlowForecast } from "./forecast";
 import { countsInBudget } from "./movement-nature";
 import { budgetUsage, monthTransactions, spendByCategory } from "./selectors";
@@ -53,7 +54,12 @@ export function exactDuplicateGroups(rows: Transaction[]) {
     ].join("|");
     groups.set(key, [...(groups.get(key) ?? []), row]);
   }
-  return [...groups.values()].filter((group) => group.length > 1);
+  const exact = [...groups.values()].filter((group) => group.length > 1);
+  const alreadyFlagged = new Set(exact.flatMap((group) => group.map((row) => row.id)));
+  const suspicious = suspiciousCardCreditDuplicateGroups(rows).filter((group) =>
+    group.every((row) => !alreadyFlagged.has(row.id)),
+  );
+  return [...exact, ...suspicious];
 }
 
 export function exactDuplicateTransactionIds(rows: Transaction[]) {
