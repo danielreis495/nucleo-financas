@@ -164,7 +164,9 @@ export function paymentMethodForItem(
   if (/\bsalario\b|\bremuneracao\b/.test(text)) return "Crédito em conta";
   if (/\biof\b|\bjuros\b|\btarifa\b|\bseguro\b/.test(text)) return "Débito em conta";
 
-  if (origin.originKind === "credit_card") return "Crédito";
+  if (origin.originKind === "credit_card") {
+    return item.type === "income" ? "Crédito na fatura" : "Cartão de crédito";
+  }
   if (origin.originKind === "manual") return "Manual";
   if (origin.originKind === "bank_account") {
     return item.type === "income" ? "Crédito em conta" : "Débito em conta";
