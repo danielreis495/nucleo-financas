@@ -17,6 +17,7 @@ import {
 import { useDocumentStore } from "@/lib/document-store";
 import { findExactDuplicate, flagImportDuplicates, type DuplicateSummary } from "@/lib/duplicates";
 import { formatBRL } from "@/lib/money";
+import { normalizeCreditCardBillItems } from "@/lib/invoice-rules";
 import { useFinanceStore } from "@/lib/store";
 import {
   originFromDocument,
@@ -250,7 +251,12 @@ function CapturaPage() {
       }
 
       const holderNames = [summary?.holderName, ...useDocumentStore.getState().summaries.map((item) => item.holderName)];
-      const classified = applyKnownHolderTransfers(result.items, holderNames);
+      const normalizedBillItems = normalizeCreditCardBillItems(
+        result.items,
+        prepared.text,
+        origin.originKind,
+      );
+      const classified = applyKnownHolderTransfers(normalizedBillItems, holderNames);
       const checked = flagImportDuplicates(classified, useFinanceStore.getState().transactions, origin);
 
       if (checked.items.length > 0 && checked.items.every((item) => !item.selected)) {
