@@ -111,8 +111,17 @@ export function hiddenPlanKey(planId: string) {
 
 export const HIDDEN_PLAN_NATURE = "hidden_plan";
 
-function validMonth(value: string | null | undefined) {
-  return Boolean(value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value));
+/** Dia do mês em que a fatura do cartão fecha, se o banco informou. */
+function closingDay(account: BankAccountRow) {
+  const day = Number(account.closeDate?.slice(8, 10));
+  return Number.isInteger(day) && day >= 1 && day <= 31 ? day : null;
+}
+
+/** Mês da fatura (pelo fechamento) em que um gasto do cartão feito nessa data entra. */
+function cycleMonth(dateIso: string, account: BankAccountRow) {
+  const month = dateIso.slice(0, 7);
+  const close = closingDay(account);
+  return close && Number(dateIso.slice(8, 10)) > close ? addMonthsKey(month, 1) : month;
 }
 
 type PlanGroup = {
@@ -122,8 +131,8 @@ type PlanGroup = {
   amount: number;
   total: number;
   startMonth: string;
-  /** O início foi calculado a partir do mês da fatura (mais confiável que a data). */
-  startFromBill: boolean;
+  /** O início foi calculado pela data da compra (mais confiável que a data da linha). */
+  startFromPurchase: boolean;
   minIndex: number;
   maxIndex: number;
   personId: string;
@@ -185,17 +194,15 @@ export function buildBankState(snapshot: BankSnapshot, people: Person[]): BankSt
     const index = row.installmentNumber ?? 0;
     const total = row.installmentTotal ?? 0;
     const installment = isCard && type === "expense" && total > 1 && index >= 1 && index <= total;
-    const purchaseMonth = row.purchaseDate && /^\d{4}-\d{2}/.test(row.purchaseDate)
-      ? row.purchaseDate.slice(0, 7)
-      : null;
-    // Sem o mês da fatura, a parcela N cai N-1 meses depois da compra. Usar a data da
-    // linha colocaria todas as parcelas no mês da compra quando o banco repete essa data.
+    // Cartão: a compra conta no mês em que a fatura FECHA (o mês do gasto). Compra feita
+    // depois do dia de fechamento já entra na fatura do mês seguinte. Parcela N cai N-1
+    // meses depois da compra.
+    const purchaseDate =
+      row.purchaseDate && /^\d{4}-\d{2}-\d{2}/.test(row.purchaseDate) ? row.purchaseDate : null;
     const competenceMonth = isCard
-      ? validMonth(row.billMonth)
-        ? row.billMonth!
-        : installment && purchaseMonth
-          ? addMonthsKey(purchaseMonth, index - 1)
-          : row.date.slice(0, 7)
+      ? installment && purchaseDate
+        ? addMonthsKey(cycleMonth(purchaseDate, account), index - 1)
+        : cycleMonth(row.date, account)
       : undefined;
 
     const tx: Transaction = {
@@ -225,14 +232,14 @@ export function buildBankState(snapshot: BankSnapshot, people: Person[]): BankSt
     };
 
     if (installment && competenceMonth) {
-      const fromBill = validMonth(row.billMonth);
+      const fromPurchase = Boolean(purchaseDate);
       const startMonth = addMonthsKey(competenceMonth, -(index - 1));
       const cents = Math.round(Math.abs(row.amount) * 100);
       // Todas as parcelas da mesma compra têm a mesma data de compra. Quando o banco
       // informa essa data, ela identifica o parcelamento; sem ela, o mês de início
       // calculado faz esse papel. Assim uma compra não vira vários parcelamentos.
-      const planId = row.purchaseDate
-        ? `bank-plan:${account.id}:${key}:${total}:${cents}:${row.purchaseDate}`
+      const planId = purchaseDate
+        ? `bank-plan:${account.id}:${key}:${total}:${cents}:${purchaseDate}`
         : `bank-plan:${account.id}:${key}:${total}:${cents}:${startMonth}`;
       if (!hiddenPlans.has(hiddenPlanKey(planId))) {
         tx.installmentId = planId;
@@ -240,10 +247,10 @@ export function buildBankState(snapshot: BankSnapshot, people: Person[]): BankSt
         tx.installmentTotal = total;
         const group = groups.get(planId);
         if (group) {
-          if (fromBill && !group.startFromBill) {
+          if (fromPurchase && !group.startFromPurchase) {
             group.startMonth = startMonth;
-            group.startFromBill = true;
-          } else if (fromBill === group.startFromBill && startMonth < group.startMonth) {
+            group.startFromPurchase = true;
+          } else if (fromPurchase === group.startFromPurchase && startMonth < group.startMonth) {
             group.startMonth = startMonth;
           }
           group.minIndex = Math.min(group.minIndex, index);
@@ -259,7 +266,7 @@ export function buildBankState(snapshot: BankSnapshot, people: Person[]): BankSt
             amount: Math.abs(row.amount),
             total,
             startMonth,
-            startFromBill: fromBill,
+            startFromPurchase: fromPurchase,
             minIndex: index,
             maxIndex: index,
             personId,
@@ -291,13 +298,18 @@ export function buildBankState(snapshot: BankSnapshot, people: Person[]): BankSt
     });
 
     // Parcelas que ainda vão cair nas próximas faturas, para a previsão do mês.
+    // O mês da parcela é o do fechamento; a data mostrada é o vencimento dessa fatura,
+    // que cai no mês seguinte quando o vencimento é antes do dia de fechamento.
     const dueDay = group.account.dueDate?.slice(8, 10) ?? "10";
+    const close = closingDay(group.account);
+    const dueNextMonth = close !== null && Number(dueDay) < close;
     for (let n = group.maxIndex + 1; n <= group.total; n += 1) {
       const month = addMonthsKey(group.startMonth, n - 1);
+      const dueMonth = dueNextMonth ? addMonthsKey(month, 1) : month;
       transactions.push({
         ...group.sample,
         id: `${group.id}:${n}`,
-        date: `${month}-${dueDay}`,
+        date: `${dueMonth}-${dueDay}`,
         description: `${group.title} ${n}/${group.total}`,
         amount: group.amount,
         status: "scheduled",

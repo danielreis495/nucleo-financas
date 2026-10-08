@@ -62,13 +62,15 @@ describe("parcelamentos vindos do banco", () => {
     assert.equal(scheduled.length, 3, "só as parcelas 4, 5 e 6 ficam previstas");
   });
 
-  it("mês da fatura define o início do parcelamento", () => {
+  it("parcelas futuras usam o vencimento da fatura", () => {
+    const closing = { ...card, closeDate: "2026-09-29", dueDate: "2026-10-06" };
     const state = buildBankState(
-      snapshot([parcel(2, { billMonth: "2026-09" }), parcel(3, { billMonth: "2026-10" })]),
+      { ...snapshot([parcel(1), parcel(2)]), accounts: [closing] },
       people,
     );
-    assert.equal(state.plans.length, 1);
-    assert.equal(state.plans[0].startDate, "2026-08-01");
+    const third = state.transactions.find((t) => t.installmentIndex === 3)!;
+    assert.equal(third.competenceMonth, "2026-09");
+    assert.equal(third.date, "2026-10-06");
   });
 
   it("parcelamento removido não volta e as compras reais continuam", () => {
@@ -96,5 +98,34 @@ describe("mês das parcelas sem fatura informada", () => {
       .sort();
     assert.deepEqual(months, ["2026-07", "2026-08", "2026-09"]);
     assert.equal(state.plans[0].startDate, "2026-07-01");
+  });
+});
+
+describe("mês das compras no cartão", () => {
+  const closing = { ...card, closeDate: "2026-09-29", dueDate: "2026-10-06" };
+  const purchase = (date: string): BankTransactionRow => ({
+    ...parcel(1),
+    id: `c-${date}`,
+    date,
+    installmentNumber: null,
+    installmentTotal: null,
+    purchaseDate: null,
+    billMonth: "2026-10",
+  });
+
+  it("compra antes do fechamento conta no mês em que foi feita", () => {
+    const state = buildBankState(
+      { ...snapshot([purchase("2026-09-17")]), accounts: [closing] },
+      people,
+    );
+    assert.equal(state.transactions[0].competenceMonth, "2026-09");
+  });
+
+  it("compra depois do fechamento entra na fatura do mês seguinte", () => {
+    const state = buildBankState(
+      { ...snapshot([purchase("2026-09-30")]), accounts: [closing] },
+      people,
+    );
+    assert.equal(state.transactions[0].competenceMonth, "2026-10");
   });
 });
