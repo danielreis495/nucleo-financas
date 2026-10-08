@@ -11,7 +11,8 @@ export type BankItemConfig = { itemId: string; ownerRole: BankOwnerRole };
 export type PluggyCredentials = { clientId: string; clientSecret: string };
 
 function env(name: string) {
-  const value = process.env[name]?.trim();
+  // Tolera aspas ou espaços colados junto ao valor no painel da Vercel.
+  const value = process.env[name]?.trim().replace(/^["']+|["']+$/g, "").trim();
   return value ? value : undefined;
 }
 

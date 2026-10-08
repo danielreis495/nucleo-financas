@@ -69,6 +69,13 @@ function withQuery(path: string, params: Record<string, string | undefined>) {
   return url.toString();
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Mostra só o formato de um valor secreto: tamanho e se parece um UUID. */
+function shape(value: string) {
+  return `${value.length} caracteres${UUID.test(value) ? ", formato UUID" : ", não é UUID"}`;
+}
+
 export async function createApiKey(credentials: PluggyCredentials): Promise<string> {
   const res = await fetch(`${BASE}/auth`, {
     method: "POST",
@@ -76,10 +83,20 @@ export async function createApiKey(credentials: PluggyCredentials): Promise<stri
     body: JSON.stringify(credentials),
   });
   if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let detail = text;
+    try {
+      const body = JSON.parse(text) as { message?: string; code?: number | string };
+      detail = [body.code, body.message].filter(Boolean).join(" ");
+    } catch {
+      // resposta sem JSON: usa o texto
+    }
+    detail = detail.replaceAll(credentials.clientSecret, "***").slice(0, 200);
     throw new Error(
       res.status === 401 || res.status === 403
         ? "A Pluggy recusou as chaves. Confira PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET na Vercel."
-        : `Pluggy /auth respondeu HTTP ${res.status}`,
+        : `Pluggy /auth respondeu HTTP ${res.status}${detail ? `: ${detail}` : ""} ` +
+          `(Client ID: ${shape(credentials.clientId)}; Client Secret: ${shape(credentials.clientSecret)})`,
     );
   }
   const json = (await res.json()) as { apiKey?: string };
