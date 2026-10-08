@@ -59,8 +59,7 @@ function ParcelasPage() {
         </button>
       </div>
       <p className="mt-2 text-sm leading-relaxed text-muted">
-        Acompanhe o que ainda falta pagar e confirme pagamentos apenas quando eles realmente
-        acontecerem.
+        Parcelas do cartão chegam sozinhas pelo banco. Use o + só para compromissos fora dele.
       </p>
 
       {open ? (
@@ -158,7 +157,9 @@ function ParcelasPage() {
                   <span className="rounded-full bg-primary-soft px-2 py-1 text-[10px] font-medium text-primary">
                     Quitado
                   </span>
-                  <DeletePlanButton planId={plan.id} title={plan.title} compact />
+                  {plan.source === "bank" ? null : (
+                    <DeletePlanButton planId={plan.id} title={plan.title} compact />
+                  )}
                 </div>
               </li>
             ))}
@@ -238,18 +239,25 @@ function PlanCard({
         </p>
       </div>
 
-      <details className="group mt-3 border-t border-line pt-2">
-        <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-primary">
-          Gerenciar parcelas
-          <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
-        </summary>
-        <div className="mt-2">
-          <InstallmentReconciliation planId={plan.id} />
-          <PlanKindEditor planId={plan.id} kind={plan.kind} />
-          <PlanCategoryEditor planId={plan.id} category={plan.category} />
-          <DeletePlanButton planId={plan.id} title={plan.title} />
-        </div>
-      </details>
+      {plan.source === "bank" ? (
+        <p className="mt-3 border-t border-line pt-2 text-[11px] leading-relaxed text-muted">
+          Atualizado sozinho pelo banco: cada parcela é baixada quando aparece na fatura. Para
+          mudar a categoria, edite a compra em Movimentos.
+        </p>
+      ) : (
+        <details className="group mt-3 border-t border-line pt-2">
+          <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-primary">
+            Gerenciar parcelas
+            <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="mt-2">
+            <InstallmentReconciliation planId={plan.id} />
+            <PlanKindEditor planId={plan.id} kind={plan.kind} />
+            <PlanCategoryEditor planId={plan.id} category={plan.category} />
+            <DeletePlanButton planId={plan.id} title={plan.title} />
+          </div>
+        </details>
+      )}
     </li>
   );
 }
