@@ -6,15 +6,18 @@ import { getSql, type Sql } from "../db";
 import { configuredItems, credentialsFor, type BankItemConfig } from "./config";
 import {
   createApiKey,
+  getItem,
   listAccounts,
   listBills,
   listTransactions,
+  requestItemUpdate,
   type PluggyAccount,
   type PluggyTransaction,
 } from "./pluggy";
 import type {
   BankAccountRow,
   BankEditInput,
+  BankItemInfo,
   BankMerchantRule,
   BankOverride,
   BankSnapshot,
@@ -229,6 +232,24 @@ export async function syncAll(trigger: "cron" | "manual" | "auto"): Promise<Bank
         apiKey = await createApiKey(credentials);
         apiKeys.set(credentials.clientId, apiKey);
       }
+      const info = await getItem(apiKey, item.itemId).catch(() => null);
+      if (info) {
+        await sql`
+          insert into bank_items (item_id, owner_role, status, last_updated_at, synced_at)
+          values (${item.itemId}, ${item.ownerRole}, ${info.executionStatus ?? info.status ?? null},
+                  ${info.lastUpdatedAt ?? null}, now())
+          on conflict (item_id) do update set
+            owner_role = excluded.owner_role,
+            status = excluded.status,
+            last_updated_at = excluded.last_updated_at,
+            synced_at = now()
+        `;
+      }
+      // No botão de atualizar, também pede à Pluggy para buscar novidades no banco.
+      // Elas chegam em alguns minutos; a leitura abaixo traz o que já está lá.
+      if (trigger === "manual") {
+        await requestItemUpdate(apiKey, item.itemId).catch(() => false);
+      }
       const accounts = await listAccounts(apiKey, item.itemId);
       const institution = institutionFrom(accounts);
       for (const account of accounts) {
@@ -294,6 +315,16 @@ export async function readSnapshot(): Promise<BankSnapshot> {
     from bank_sync_runs where finished_at is not null order by id desc limit 1
   `;
   const lastSuccess = await lastSuccessfulSyncAt();
+  const itemRows = await sql<Record<string, unknown>>`
+    select item_id, status,
+           to_char(last_updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_updated_at
+    from bank_items
+  `.catch(() => [] as Record<string, unknown>[]);
+  const items: BankItemInfo[] = itemRows.map((row) => ({
+    itemId: String(row.item_id),
+    status: (row.status as string | null) ?? null,
+    lastUpdatedAt: (row.last_updated_at as string | null) ?? null,
+  }));
 
   const accounts: BankAccountRow[] = accountRows.map((row) => ({
     id: String(row.id),
@@ -355,6 +386,7 @@ export async function readSnapshot(): Promise<BankSnapshot> {
 
   return {
     accounts,
+    items,
     transactions,
     overrides,
     rules,
