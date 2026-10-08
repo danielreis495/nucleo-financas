@@ -5,7 +5,14 @@
 import { create } from "zustand";
 import { useFinanceStore } from "../store";
 import { bankLogin, loadBankSnapshot, saveBankEdit, syncBankNow } from "./api";
-import { buildBankState, connectedInstitutions, merchantKey, BANK_TX_PREFIX } from "./mapper";
+import {
+  buildBankState,
+  connectedInstitutions,
+  hiddenPlanKey,
+  merchantKey,
+  BANK_TX_PREFIX,
+  HIDDEN_PLAN_NATURE,
+} from "./mapper";
 import type { BankEditInput, BankSnapshot, BankSyncInfo } from "./types";
 
 export type BankPhase = "idle" | "loading" | "syncing" | "ready" | "login" | "setup" | "error";
@@ -17,6 +24,8 @@ type BankStatus = {
   institutions: string[];
   lastSync: BankSyncInfo | null;
   lastSuccessAt: string | null;
+  /** Data mais antiga em que a Pluggy buscou dados nos bancos conectados. */
+  bankUpdatedAt: string | null;
 };
 
 export const useBankStatus = create<BankStatus>(() => ({
@@ -26,7 +35,16 @@ export const useBankStatus = create<BankStatus>(() => ({
   institutions: [],
   lastSync: null,
   lastSuccessAt: null,
+  bankUpdatedAt: null,
 }));
+
+function oldestBankUpdate(snapshot: BankSnapshot) {
+  const dates = (snapshot.items ?? [])
+    .map((item) => item.lastUpdatedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort();
+  return dates[0] ?? null;
+}
 
 let inFlight: Promise<void> | null = null;
 
@@ -52,6 +70,7 @@ function apply(snapshot: BankSnapshot) {
     institutions: connectedInstitutions(snapshot),
     lastSync: snapshot.lastSync,
     lastSuccessAt: snapshot.lastSuccessAt,
+    bankUpdatedAt: oldestBankUpdate(snapshot),
   });
 }
 
@@ -128,4 +147,9 @@ export async function persistBankEdit(
   });
   if (result.ok && edit.category) await refreshBank();
   return result;
+}
+
+/** Remove um parcelamento vindo do banco: as compras reais ficam, as parcelas futuras somem. */
+export async function hideBankPlan(planId: string) {
+  return saveBankEdit({ data: { txId: hiddenPlanKey(planId), nature: HIDDEN_PLAN_NATURE } });
 }
