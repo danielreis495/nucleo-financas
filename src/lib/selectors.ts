@@ -166,6 +166,8 @@ function installmentSettled(t: Transaction) {
 }
 
 export function planProgress(state: FinanceState, planId: string) {
+  const bankProgress = bankPlanProgress(state, planId);
+  if (bankProgress) return bankProgress;
   const txs = state.transactions.filter((t) => t.installmentId === planId);
   const plan = state.plans.find((p) => p.id === planId);
   const total = plan?.totalCount ?? txs.length;
@@ -331,5 +333,30 @@ export function financialSnapshot(state: FinanceState, key: string): FinancialSn
     recoveryTarget,
     transactionCount: posted.length,
     incomeCount: incomes.length,
+  };
+}
+
+/**
+ * Open Finance: a parcela N só aparece quando cai na fatura, então as anteriores
+ * já foram cobradas. Retorna null para planos que não vieram do banco.
+ */
+function bankPlanProgress(state: FinanceState, planId: string) {
+  const plan = state.plans.find((p) => p.id === planId);
+  if (plan?.source !== "bank") return null;
+  const txs = state.transactions.filter((t) => t.installmentId === planId);
+  const total = plan.totalCount;
+  const charged = Math.max(
+    0,
+    ...txs.filter((t) => t.status === "posted").map((t) => t.installmentIndex ?? 0),
+  );
+  const remaining = txs
+    .filter((t) => t.status === "scheduled")
+    .sort((a, b) => a.date.localeCompare(b.date));
+  return {
+    paid: Math.min(total, charged),
+    total,
+    remainingAmount: sumBy(remaining, (t) => t.amount),
+    next: (remaining[0] ?? null) as Transaction | null,
+    unverifiedPast: 0,
   };
 }

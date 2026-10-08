@@ -2,6 +2,8 @@ import { useEffect } from "react";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { CalendarClock, Home, Plus, Receipt, Sparkles } from "lucide-react";
 import { Toaster } from "sonner";
+import { BankLoadingScreen, BankLoginScreen, BankSetupScreen } from "@/components/bank-gate";
+import { refreshBank, useBankStatus } from "@/lib/bank/client";
 import { useFinanceStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -20,11 +22,16 @@ const NAV: {
 
 export function AppShell() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const bankPhase = useBankStatus((s) => s.phase);
+  const hydrated = useFinanceStore((s) => s.hydrated);
+  const bankBootstrapped = useFinanceStore((s) => s.bankBootstrapped);
 
   useEffect(() => {
     const finish = () => {
       useFinanceStore.getState().setHydrated(true);
       useFinanceStore.getState().advanceDueInstallments();
+      // Depois de ler o que está salvo no aparelho, busca o retrato atualizado do banco.
+      void refreshBank();
     };
     if (useFinanceStore.persist.hasHydrated()) {
       finish();
@@ -35,11 +42,31 @@ export function AppShell() {
     return unsub;
   }, []);
 
+  if (bankPhase === "login" || bankPhase === "setup") {
+    return (
+      <div className="min-h-dvh bg-bg text-fg">
+        <div className="mx-auto min-h-dvh w-full max-w-[430px] bg-surface">
+          {bankPhase === "login" ? <BankLoginScreen /> : <BankSetupScreen />}
+        </div>
+      </div>
+    );
+  }
+
+  // Primeira abertura: não mostra a casa de exemplo enquanto os dados do banco chegam.
+  const waitingFirstLoad =
+    !bankBootstrapped && (!hydrated || bankPhase === "idle" || bankPhase === "loading" || bankPhase === "syncing");
+
   return (
     <div className="min-h-dvh overflow-x-hidden bg-bg text-fg">
       <div className="relative mx-auto flex min-h-dvh w-full max-w-[430px] flex-col overflow-x-hidden bg-surface shadow-[var(--shadow-border)]">
         <div className="flex min-h-0 flex-1 flex-col pb-[calc(5rem+env(safe-area-inset-bottom))]">
-          <Outlet />
+          {waitingFirstLoad ? (
+            <BankLoadingScreen />
+          ) : !bankBootstrapped && bankPhase === "error" ? (
+            <BankSetupScreen title="Não consegui falar com o banco" />
+          ) : (
+            <Outlet />
+          )}
         </div>
 
         <nav

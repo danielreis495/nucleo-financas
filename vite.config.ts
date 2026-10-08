@@ -175,6 +175,13 @@ export default defineConfig(({ command, isPreview }) => ({
             // manifest + head-tag middleware). Nitro v3 defaults serverDir to
             // false, so removing this silently unwires /?install=1 on deploys.
             serverDir: "./server",
+            // Sincronização diária do Open Finance (7h de Brasília). Vai para o
+            // config.json da Build Output API, que é onde a Vercel lê os crons.
+            vercel: {
+              config: {
+                crons: [{ path: "/api/cron/sync", schedule: "0 10 * * *" }],
+              },
+            },
           }),
         ]
       : []),

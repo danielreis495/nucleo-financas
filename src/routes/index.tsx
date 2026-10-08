@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { CalendarClock } from "lucide-react";
+import { BankStatusCard } from "@/components/bank-status-card";
 import { CashFlowForecastCard } from "@/components/cash-flow-forecast-card";
 import { CashPositionCard } from "@/components/cash-position-card";
 import { CardsOverviewCard } from "@/components/cards-overview-card";
@@ -43,11 +44,7 @@ function Home() {
     <main className="stagger-in flex flex-col gap-4 pb-6">
       <MonthHeader month={month} onChange={setMonth} kicker={state.householdName} />
 
-      {state.demo ? (
-        <p className="mx-5 rounded-lg bg-warn-soft px-3 py-2 text-xs leading-relaxed text-warn">
-          Casa de exemplo da família Almeida. Capture uma nota ou limpe os dados em Casa.
-        </p>
-      ) : null}
+      <BankStatusCard className="mx-5" />
 
       <HomeCockpit month={month} />
 

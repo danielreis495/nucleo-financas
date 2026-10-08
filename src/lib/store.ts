@@ -94,6 +94,13 @@ type FinanceActions = {
   }) => void;
   setAdvice: (advice: AdviceCache | null) => void;
   advanceDueInstallments: () => void;
+  /** Troca os dados vindos do banco (Open Finance) mantendo os lançamentos manuais. */
+  applyBankSnapshot: (data: {
+    accounts: Account[];
+    transactions: Transaction[];
+    plans: FinanceState["plans"];
+  }) => void;
+  bankBootstrapped: boolean;
   geminiKey: string;
   setGeminiKey: (key: string) => void;
 };
@@ -428,7 +435,20 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         };
         set({ transactions: [t, ...get().transactions], demo: false });
       },
-      updateTransaction: (id, patch) =>
+      updateTransaction: (id, patch) => {
+        const original = get().transactions.find((t) => t.id === id);
+        if (original?.source === "bank") {
+          const edit = {
+            category: patch.category && patch.category !== original.category ? patch.category : undefined,
+            personId: patch.personId && patch.personId !== original.personId ? patch.personId : undefined,
+            nature: patch.nature && patch.nature !== original.nature ? patch.nature : undefined,
+          };
+          if (edit.category || edit.personId || edit.nature) {
+            void import("./bank/client")
+              .then((bank) => bank.persistBankEdit(id, original.merchant, edit))
+              .catch((error) => console.error("[bank] ajuste não salvo", error));
+          }
+        }
         set({
           transactions: get().transactions.map((t) => {
             const at = new Date().toISOString();
@@ -459,7 +479,8 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
             return next;
           }),
           advice: null,
-        }),
+        });
+      },
       removeTransaction: (id) =>
         set({
           transactions: get()
@@ -490,7 +511,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         if (existing) return existing.id;
         let id = trimmed
           .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[̀-ͯ]/g, "")
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/^-+|-+$/g, "")
@@ -709,6 +730,23 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
       advanceDueInstallments: () => {
         // Vencimento não comprova pagamento. A baixa exige conciliação explícita.
       },
+      bankBootstrapped: false,
+      applyBankSnapshot: ({ accounts, transactions, plans }) => {
+        const state = get();
+        // Na primeira conexão o histórico local é descartado: a partir daqui o banco é a fonte.
+        const fresh = !state.bankBootstrapped;
+        const keptTransactions = fresh ? [] : state.transactions.filter((t) => t.source !== "bank");
+        const keptPlans = fresh ? [] : state.plans.filter((p) => p.source !== "bank");
+        const keptAccounts = fresh ? [] : state.accounts.filter((a) => !a.id.startsWith("bank:"));
+        set({
+          accounts: [...accounts, ...keptAccounts],
+          transactions: reconcileTransactionNatures([...transactions, ...keptTransactions]),
+          plans: [...plans, ...keptPlans],
+          advice: fresh ? null : state.advice,
+          demo: false,
+          bankBootstrapped: true,
+        });
+      },
     }),
     {
       name: "nucleo-finance-v1",
@@ -736,6 +774,7 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         advice: s.advice,
         demo: s.demo,
         geminiKey: s.geminiKey,
+        bankBootstrapped: s.bankBootstrapped,
       }),
     },
   ),
