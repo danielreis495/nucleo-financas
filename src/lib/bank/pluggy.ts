@@ -42,6 +42,13 @@ export type PluggyTransaction = {
   } | null;
 };
 
+export type PluggyItem = {
+  id: string;
+  status?: string | null;
+  executionStatus?: string | null;
+  lastUpdatedAt?: string | null;
+};
+
 export type PluggyBill = {
   id: string;
   dueDate?: string | null;
@@ -116,6 +123,23 @@ async function requestApiKey(clientId: string, clientSecret: string): Promise<st
   const json = (await res.json()) as { apiKey?: string };
   if (!json.apiKey) throw new Error("A Pluggy não devolveu a chave de acesso.");
   return json.apiKey;
+}
+
+export async function getItem(apiKey: string, itemId: string) {
+  return request<PluggyItem>(apiKey, `${BASE}/items/${encodeURIComponent(itemId)}`);
+}
+
+/**
+ * Pede à Pluggy para buscar novidades no banco agora. A atualização roda em segundo
+ * plano: os dados novos aparecem na próxima leitura, alguns minutos depois.
+ */
+export async function requestItemUpdate(apiKey: string, itemId: string) {
+  const res = await fetch(`${BASE}/items/${encodeURIComponent(itemId)}`, {
+    method: "PATCH",
+    headers: { "X-API-KEY": apiKey, "content-type": "application/json", accept: "application/json" },
+    body: "{}",
+  });
+  return res.ok;
 }
 
 export async function listAccounts(apiKey: string, itemId: string) {

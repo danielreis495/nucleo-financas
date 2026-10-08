@@ -157,9 +157,7 @@ function ParcelasPage() {
                   <span className="rounded-full bg-primary-soft px-2 py-1 text-[10px] font-medium text-primary">
                     Quitado
                   </span>
-                  {plan.source === "bank" ? null : (
-                    <DeletePlanButton planId={plan.id} title={plan.title} compact />
-                  )}
+                  <DeletePlanButton planId={plan.id} title={plan.title} compact />
                 </div>
               </li>
             ))}
@@ -240,10 +238,13 @@ function PlanCard({
       </div>
 
       {plan.source === "bank" ? (
-        <p className="mt-3 border-t border-line pt-2 text-[11px] leading-relaxed text-muted">
-          Atualizado sozinho pelo banco: cada parcela é baixada quando aparece na fatura. Para
-          mudar a categoria, edite a compra em Movimentos.
-        </p>
+        <div className="mt-3 border-t border-line pt-2">
+          <p className="text-[11px] leading-relaxed text-muted">
+            Atualizado sozinho pelo banco: cada parcela é baixada quando aparece na fatura. Para
+            mudar a categoria, edite a compra em Movimentos.
+          </p>
+          <DeletePlanButton planId={plan.id} title={plan.title} />
+        </div>
       ) : (
         <details className="group mt-3 border-t border-line pt-2">
           <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-primary">
@@ -281,6 +282,15 @@ function DeletePlanButton({
   ).length;
 
   function handleDelete() {
+    const fromBank = useFinanceStore.getState().plans.some(
+      (plan) => plan.id === planId && plan.source === "bank",
+    );
+    if (fromBank) {
+      // Guarda no servidor para o parcelamento não voltar na próxima busca do banco.
+      void import("@/lib/bank/client")
+        .then((bank) => bank.hideBankPlan(planId))
+        .catch(() => toast.error("Não consegui salvar a remoção. Tente de novo."));
+    }
     if (!removePlan(planId)) {
       toast.error("Não encontrei esse parcelamento.");
       return;

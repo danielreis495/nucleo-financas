@@ -99,6 +99,18 @@ function accountLabel(account: BankAccountRow) {
     : `Conta ${account.institution}`;
 }
 
+/**
+ * Chave curta e estável de um parcelamento do banco, usada para guardar no servidor
+ * que a pessoa removeu esse parcelamento (cabe no campo `tx_id` dos ajustes).
+ */
+export function hiddenPlanKey(planId: string) {
+  let hash = 5381;
+  for (let i = 0; i < planId.length; i += 1) hash = ((hash * 33) ^ planId.charCodeAt(i)) >>> 0;
+  return `plan:${hash.toString(36)}:${planId.length}`;
+}
+
+export const HIDDEN_PLAN_NATURE = "hidden_plan";
+
 function validMonth(value: string | null | undefined) {
   return Boolean(value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value));
 }
@@ -110,6 +122,8 @@ type PlanGroup = {
   amount: number;
   total: number;
   startMonth: string;
+  /** O início foi calculado a partir do mês da fatura (mais confiável que a data). */
+  startFromBill: boolean;
   minIndex: number;
   maxIndex: number;
   personId: string;
@@ -129,6 +143,11 @@ export function buildBankState(snapshot: BankSnapshot, people: Person[]): BankSt
   const overrides = new Map(snapshot.overrides.map((item) => [item.txId, item]));
   const rules = new Map(snapshot.rules.map((rule) => [rule.merchantKey, rule.category]));
   const groups = new Map<string, PlanGroup>();
+  const hiddenPlans = new Set(
+    snapshot.overrides
+      .filter((item) => item.nature === HIDDEN_PLAN_NATURE)
+      .map((item) => item.txId),
+  );
   const transactions: Transaction[] = [];
 
   const accounts: Account[] = snapshot.accounts
@@ -163,15 +182,21 @@ export function buildBankState(snapshot: BankSnapshot, people: Person[]): BankSt
       // Estorno no cartão herda a categoria de gasto, não "entrada".
       mapBankCategory(row.category, isCard ? "DEBIT" : row.direction);
     const personId = override?.personId ?? personForRole(people, account.ownerRole);
-    const competenceMonth = isCard
-      ? validMonth(row.billMonth)
-        ? row.billMonth!
-        : row.date.slice(0, 7)
-      : undefined;
-
     const index = row.installmentNumber ?? 0;
     const total = row.installmentTotal ?? 0;
     const installment = isCard && type === "expense" && total > 1 && index >= 1 && index <= total;
+    const purchaseMonth = row.purchaseDate && /^\d{4}-\d{2}/.test(row.purchaseDate)
+      ? row.purchaseDate.slice(0, 7)
+      : null;
+    // Sem o mês da fatura, a parcela N cai N-1 meses depois da compra. Usar a data da
+    // linha colocaria todas as parcelas no mês da compra quando o banco repete essa data.
+    const competenceMonth = isCard
+      ? validMonth(row.billMonth)
+        ? row.billMonth!
+        : installment && purchaseMonth
+          ? addMonthsKey(purchaseMonth, index - 1)
+          : row.date.slice(0, 7)
+      : undefined;
 
     const tx: Transaction = {
       id: `${BANK_TX_PREFIX}${row.id}`,
@@ -200,31 +225,49 @@ export function buildBankState(snapshot: BankSnapshot, people: Person[]): BankSt
     };
 
     if (installment && competenceMonth) {
+      const fromBill = validMonth(row.billMonth);
       const startMonth = addMonthsKey(competenceMonth, -(index - 1));
-      const planId = `bank-plan:${account.id}:${key}:${total}:${Math.round(row.amount)}:${startMonth}`;
-      tx.installmentId = planId;
-      tx.installmentIndex = index;
-      tx.installmentTotal = total;
-      const group = groups.get(planId);
-      if (group) {
-        group.minIndex = Math.min(group.minIndex, index);
-        group.maxIndex = Math.max(group.maxIndex, index);
-        if (index === group.maxIndex) group.sample = tx;
-      } else {
-        groups.set(planId, {
-          id: planId,
-          title: merchant,
-          merchant,
-          amount: Math.abs(row.amount),
-          total,
-          startMonth,
-          minIndex: index,
-          maxIndex: index,
-          personId,
-          category,
-          account,
-          sample: tx,
-        });
+      const cents = Math.round(Math.abs(row.amount) * 100);
+      // Todas as parcelas da mesma compra têm a mesma data de compra. Quando o banco
+      // informa essa data, ela identifica o parcelamento; sem ela, o mês de início
+      // calculado faz esse papel. Assim uma compra não vira vários parcelamentos.
+      const planId = row.purchaseDate
+        ? `bank-plan:${account.id}:${key}:${total}:${cents}:${row.purchaseDate}`
+        : `bank-plan:${account.id}:${key}:${total}:${cents}:${startMonth}`;
+      if (!hiddenPlans.has(hiddenPlanKey(planId))) {
+        tx.installmentId = planId;
+        tx.installmentIndex = index;
+        tx.installmentTotal = total;
+        const group = groups.get(planId);
+        if (group) {
+          if (fromBill && !group.startFromBill) {
+            group.startMonth = startMonth;
+            group.startFromBill = true;
+          } else if (fromBill === group.startFromBill && startMonth < group.startMonth) {
+            group.startMonth = startMonth;
+          }
+          group.minIndex = Math.min(group.minIndex, index);
+          if (index >= group.maxIndex) {
+            group.maxIndex = index;
+            group.sample = tx;
+          }
+        } else {
+          groups.set(planId, {
+            id: planId,
+            title: merchant,
+            merchant,
+            amount: Math.abs(row.amount),
+            total,
+            startMonth,
+            startFromBill: fromBill,
+            minIndex: index,
+            maxIndex: index,
+            personId,
+            category,
+            account,
+            sample: tx,
+          });
+        }
       }
     }
     transactions.push(tx);

@@ -54,8 +54,16 @@ export type BankSyncInfo = {
   transactions: number | null;
 };
 
+export type BankItemInfo = {
+  itemId: string;
+  status: string | null;
+  /** Quando a Pluggy buscou os dados no banco pela última vez. */
+  lastUpdatedAt: string | null;
+};
+
 export type BankSnapshot = {
   accounts: BankAccountRow[];
+  items?: BankItemInfo[];
   transactions: BankTransactionRow[];
   overrides: BankOverride[];
   rules: BankMerchantRule[];

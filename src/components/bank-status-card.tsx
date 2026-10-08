@@ -13,9 +13,20 @@ function relativeTime(iso: string | null) {
   return `há ${days} dia${days === 1 ? "" : "s"}`;
 }
 
+function formatDateTime(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 /** Mostra quais bancos estão conectados, quando atualizou e permite atualizar na hora. */
 export function BankStatusCard({ className }: { className?: string }) {
-  const { phase, institutions, lastSuccessAt, syncErrors, error } = useBankStatus();
+  const { phase, institutions, lastSuccessAt, bankUpdatedAt, syncErrors, error } = useBankStatus();
   const busy = phase === "loading" || phase === "syncing";
   const problems = phase === "error" && error ? [error] : syncErrors;
 
@@ -34,6 +45,12 @@ export function BankStatusCard({ className }: { className?: string }) {
           <p className="text-xs text-muted">
             {phase === "syncing" ? "Buscando novidades no banco…" : `Atualizado ${relativeTime(lastSuccessAt)}`}
           </p>
+          {bankUpdatedAt && phase !== "syncing" ? (
+            <p className="text-[11px] text-muted">
+              Dados do banco de {formatDateTime(bankUpdatedAt)}. Ao tocar em atualizar, o banco
+              manda as novidades em alguns minutos.
+            </p>
+          ) : null}
         </div>
         <button
           type="button"
