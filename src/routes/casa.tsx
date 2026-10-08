@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { ChevronDown, Database, Plus, ShieldCheck, Sparkles, Users, Wrench } from "lucide-react";
@@ -6,6 +6,7 @@ import { PersonAvatar, personColorClass } from "@/components/person-avatar";
 import { AccountsCard } from "@/components/accounts-card";
 import { CardsOverviewCard } from "@/components/cards-overview-card";
 import { Button } from "@/components/ui/button";
+import { readAccessCode, saveAccessCode } from "@/lib/access-code";
 import { useDocumentStore } from "@/lib/document-store";
 import { formatBRL, formatBRLCompact } from "@/lib/money";
 import { monthTransactions, spendByPerson } from "@/lib/selectors";
@@ -27,6 +28,13 @@ const COLORS: PersonColor[] = ["p1", "p2", "p3", "p4", "p5"];
 const STORAGE_KEY = "nucleo-finance-v1";
 const IMPORT_FINGERPRINTS_KEY = "nucleo-import-fingerprints-v1";
 const BACKUP_VERSION = 1;
+/** Outros dados do aparelho que fazem parte do backup (faturas/saldos lidos e aprendizados). */
+const BACKUP_EXTRA_KEYS = [
+  "nucleo-documents-v1",
+  "nucleo-category-rules-v1",
+  "nucleo-merchant-aliases-v1",
+  "nucleo-monthly-simulation-reference-v1",
+];
 
 type BackupFile = {
   app: "nucleo-financas";
@@ -37,6 +45,7 @@ type BackupFile = {
     state: Record<string, unknown>;
     version?: number;
   };
+  extras?: Record<string, string>;
 };
 
 function downloadBackup() {
@@ -49,12 +58,18 @@ function downloadBackup() {
     }
     const state = { ...parsed.state };
     delete state.geminiKey;
+    const extras: Record<string, string> = {};
+    for (const key of BACKUP_EXTRA_KEYS) {
+      const value = localStorage.getItem(key);
+      if (value) extras[key] = value;
+    }
     const backup: BackupFile = {
       app: "nucleo-financas",
       backupVersion: BACKUP_VERSION,
       createdAt: new Date().toISOString(),
       storageKey: STORAGE_KEY,
       data: { ...parsed, state },
+      extras,
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -95,6 +110,17 @@ function restoreBackup(file: File) {
         state: { ...state, geminiKey: "" },
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(restored));
+      // Backups antigos não têm "extras"; os novos trazem faturas/saldos lidos e regras.
+      for (const key of BACKUP_EXTRA_KEYS) {
+        const value = backup.extras?.[key];
+        if (typeof value !== "string") continue;
+        try {
+          JSON.parse(value);
+          localStorage.setItem(key, value);
+        } catch {
+          // Item corrompido: ignora sem impedir a restauração principal.
+        }
+      }
       toast.success("Backup restaurado. Reabrindo o Núcleo…");
       window.setTimeout(() => window.location.reload(), 500);
     } catch (error) {
@@ -428,6 +454,14 @@ function CasaPage() {
 }
 
 function ServerAiCard() {
+  const [code, setCode] = useState("");
+  const [saved, setSaved] = useState(false);
+  // Lido após montar para não divergir da renderização no servidor.
+  useEffect(() => {
+    const stored = readAccessCode();
+    setCode(stored);
+    setSaved(Boolean(stored));
+  }, []);
   return (
     <section className="mt-4 rounded-xl bg-elevated p-4 shadow-[var(--shadow-border)]">
       <div className="flex items-center gap-3">
@@ -439,16 +473,46 @@ function ServerAiCard() {
           <div className="mt-0.5 flex items-center justify-between gap-3">
             <h2 className="font-display text-xl">Conversa e documentos com IA</h2>
             <span className="shrink-0 rounded-full bg-primary-soft px-2.5 py-1 text-[10px] font-medium text-primary">
-              Ativa
+              {saved ? "Liberada" : "Bloqueada"}
             </span>
           </div>
         </div>
       </div>
 
       <p className="mt-2 text-xs leading-relaxed text-muted">
-        O Gemini está configurado com segurança no servidor. Você pode conversar, analisar
-        movimentos e importar documentos sem cadastrar chave neste aparelho.
+        A chave do Gemini fica protegida no servidor. Para que só a sua casa use a IA, cada aparelho
+        informa uma vez o código de acesso definido em NUCLEO_ACCESS_CODE na Vercel.
       </p>
+      <p className="mt-2 text-xs leading-relaxed text-muted">
+        Ao usar a IA, o texto e as imagens dos documentos e o resumo financeiro da conversa são
+        enviados ao Gemini (Google) para interpretação. A leitura local de extratos e planilhas
+        estruturados não envia nada.
+      </p>
+      <form
+        className="mt-3 flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (saveAccessCode(code)) {
+            setSaved(Boolean(code.trim()));
+            toast.success(code.trim() ? "Código salvo neste aparelho." : "Código removido deste aparelho.");
+          } else {
+            toast.error("Não consegui salvar o código neste aparelho.");
+          }
+        }}
+      >
+        <input
+          type="password"
+          autoComplete="off"
+          value={code}
+          onChange={(event) => setCode(event.target.value)}
+          placeholder="Código de acesso"
+          aria-label="Código de acesso do Núcleo IA"
+          className="h-10 min-w-0 flex-1 rounded-lg bg-surface px-3 text-sm shadow-[var(--shadow-border)]"
+        />
+        <Button type="submit" variant="secondary">
+          Salvar
+        </Button>
+      </form>
       <Link to="/conselhos" className="mt-3 inline-flex text-xs font-medium text-primary">
         Abrir Núcleo IA
       </Link>

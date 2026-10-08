@@ -189,7 +189,10 @@ function sharedIdentityTokens(a: MovementLike, b: MovementLike) {
 
 export function reconcileTransactionNatures(transactions: Transaction[]) {
   const rows = transactions.map((row) => ({ ...row, nature: inferMovementNature(row) }));
-  const identitySeeds = new Set<string>();
+  // Cada par confirmado de transferência ensina um "nome" (tokens em comum).
+  // Só propagamos nomes com 2+ tokens, e exigimos todos eles: um sobrenome
+  // isolado ("silva") não pode puxar Pix de terceiros para fora do orçamento.
+  const identitySeeds: string[][] = [];
 
   for (let i = 0; i < rows.length; i += 1) {
     const a = rows[i];
@@ -207,15 +210,16 @@ export function reconcileTransactionNatures(transactions: Transaction[]) {
 
       a.nature = "transfer";
       b.nature = "transfer";
-      for (const token of shared) identitySeeds.add(token);
+      if (shared.length >= 2) identitySeeds.push(shared);
       break;
     }
   }
 
-  if (identitySeeds.size > 0) {
+  if (identitySeeds.length > 0) {
     for (const row of rows) {
       if (row.natureLocked || natureOf(row) !== "budget" || !transferLike(row) || isBusinessText(row)) continue;
-      if (identityTokens(row).some((token) => identitySeeds.has(token))) row.nature = "transfer";
+      const tokens = new Set(identityTokens(row));
+      if (identitySeeds.some((seed) => seed.every((token) => tokens.has(token)))) row.nature = "transfer";
     }
   }
 

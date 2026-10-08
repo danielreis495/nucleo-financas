@@ -148,19 +148,39 @@ export function dailySpend(rows: Transaction[], key: string) {
 
 export function upcomingInstallments(state: FinanceState, fromIso: string, limit = 8) {
   return state.transactions
-    .filter((t) => t.installmentId && t.date >= fromIso)
+    .filter(
+      (t) =>
+        t.installmentId &&
+        t.status === "scheduled" &&
+        !t.reconciledPaymentId &&
+        !t.manualPayment &&
+        t.date >= fromIso,
+    )
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(0, limit);
+}
+
+/** Parcela já aconteceu: veio de fatura/extrato, foi conciliada ou confirmada. */
+function installmentSettled(t: Transaction) {
+  return t.status === "posted" || Boolean(t.reconciledPaymentId || t.manualPayment);
 }
 
 export function planProgress(state: FinanceState, planId: string) {
   const txs = state.transactions.filter((t) => t.installmentId === planId);
   const plan = state.plans.find((p) => p.id === planId);
-  const importedPast = plan?.importedCurrentIndex ? Math.max(0, plan.importedCurrentIndex - 1) : 0;
-  const paidVisible = txs.filter((t) => Boolean(t.reconciledPaymentId || t.manualPayment)).length;
   const total = plan?.totalCount ?? txs.length;
-  const paid = Math.min(total, paidVisible);
-  const remaining = txs.filter((t) => !t.reconciledPaymentId && !t.manualPayment);
+  // Parcelas anteriores à primeira importada não têm linha própria, mas o
+  // documento ("3/10") comprova que já foram cobradas.
+  const firstKnownIndex = Math.min(
+    ...txs.map((t) => t.installmentIndex ?? Number.POSITIVE_INFINITY),
+    plan?.importedCurrentIndex ?? Number.POSITIVE_INFINITY,
+  );
+  const importedPast = Number.isFinite(firstKnownIndex) && plan?.importedCurrentIndex
+    ? Math.max(0, firstKnownIndex - 1)
+    : 0;
+  const paidVisible = txs.filter(installmentSettled).length;
+  const paid = Math.min(total, importedPast + paidVisible);
+  const remaining = txs.filter((t) => !installmentSettled(t));
   const remainingAmount = sumBy(remaining, (t) => t.amount);
   const next = remaining.sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
   return { paid, total, remainingAmount, next, unverifiedPast: importedPast };

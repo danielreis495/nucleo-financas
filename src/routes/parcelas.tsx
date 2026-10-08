@@ -266,7 +266,8 @@ function DeletePlanButton({
   const transactions = useFinanceStore((state) => state.transactions);
   const removePlan = useFinanceStore((state) => state.removeInstallmentPlan);
   const linked = transactions.filter((transaction) => transaction.installmentId === planId);
-  const manualPayments = linked.filter((transaction) => Boolean(transaction.manualPayment)).length;
+  const projected = linked.filter((transaction) => transaction.status !== "posted").length;
+  const happened = linked.length - projected;
   const reconciledPayments = linked.filter((transaction) =>
     Boolean(transaction.reconciledPaymentId),
   ).length;
@@ -276,7 +277,7 @@ function DeletePlanButton({
       toast.error("Não encontrei esse parcelamento.");
       return;
     }
-    toast.success("Parcelamento excluído. Pagamentos do extrato foram preservados.");
+    toast.success("Parcelamento excluído. Gastos e pagamentos reais foram preservados.");
   }
 
   return (
@@ -300,12 +301,11 @@ function DeletePlanButton({
             Excluir “{title}”?
           </AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-sm leading-relaxed text-muted">
-            Serão removidas {linked.length} parcela{linked.length === 1 ? "" : "s"} gerada
-            {linked.length === 1 ? "" : "s"}
-            {manualPayments > 0
-              ? ` e ${manualPayments} baixa${manualPayments === 1 ? " manual" : "s manuais"}`
+            Serão removidas {projected} parcela{projected === 1 ? "" : "s"} prevista
+            {projected === 1 ? "" : "s"}.
+            {happened > 0
+              ? ` ${happened} parcela${happened === 1 ? " que já aconteceu continuará" : "s que já aconteceram continuarão"} no extrato como gasto, sem o vínculo com o plano.`
               : ""}
-            .
             {reconciledPayments > 0
               ? ` ${reconciledPayments} pagamento${reconciledPayments === 1 ? "" : "s"} importado${reconciledPayments === 1 ? " continuará" : "s continuarão"} no extrato, apenas sem o vínculo.`
               : " Pagamentos importados do extrato não serão apagados."}

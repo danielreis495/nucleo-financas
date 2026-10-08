@@ -136,6 +136,8 @@ function installmentCompatible(item: ExtractedItem, transaction: Transaction) {
 }
 
 function exactMatchScore(item: ExtractedItem, transaction: Transaction, context?: DuplicateContext) {
+  // Parcelas previstas são projeções, não registros: a importação as realiza.
+  if (transaction.status === "scheduled") return -1;
   if (transaction.type !== item.type || !sameAmount(transaction.amount, item.amount)) return -1;
   if (!sameOrigin(transaction, context) || !installmentCompatible(item, transaction)) return -1;
 
@@ -153,6 +155,7 @@ function exactMatchScore(item: ExtractedItem, transaction: Transaction, context?
 }
 
 function possibleMatch(item: ExtractedItem, transaction: Transaction, context?: DuplicateContext) {
+  if (transaction.status === "scheduled") return false;
   if (transaction.type !== item.type || !sameAmount(transaction.amount, item.amount)) return false;
   if (!sameOrigin(transaction, context) || !installmentCompatible(item, transaction)) return false;
   const distance = daysApart(transaction.date, item.date);

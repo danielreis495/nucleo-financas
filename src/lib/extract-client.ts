@@ -141,13 +141,34 @@ async function preparePdf(file: File): Promise<PreparedDocument> {
   } finally { await loadingTask.destroy(); }
 }
 
-function sheetToText(fileName: string, rows: Record<string, unknown>[]) {
-  const limited = rows.slice(0, 200);
-  const header = Object.keys(limited[0] ?? {});
-  const lines = limited.map((row) =>
-    header.map((h) => `${h}: ${row[h] ?? ""}`).join(" | "),
-  );
-  return `FIDELIDADE: preserve nomes e descrições exatamente como aparecem nas células. Não normalize nomes de estabelecimentos.\nArquivo: ${fileName}\nColunas: ${header.join(", ")}\n${lines.join("\n")}`;
+/** Limite de texto para planilhas; acima disso pedimos para dividir em vez de cortar. */
+const SHEET_TEXT_LIMIT = 200_000;
+
+function cellToText(value: unknown) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, "0");
+    const d = String(value.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  // Números de planilha vêm com ponto decimal (1234.56). Mantemos o ponto e o
+  // parser monetário interpreta corretamente; inteiros ficam como estão.
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  }
+  return String(value ?? "").replace(/\s*\|\s*/g, " / ").replace(/\s+/g, " ").trim();
+}
+
+export function sheetToText(fileName: string, rows: Record<string, unknown>[]) {
+  const header = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+  const lines = rows.map((row) => header.map((h) => `${h}: ${cellToText(row[h])}`).join(" | "));
+  const text = `FIDELIDADE: preserve nomes e descrições exatamente como aparecem nas células. Não normalize nomes de estabelecimentos.\nArquivo: ${fileName}\nLinhas: ${rows.length}\nColunas: ${header.join(", ")}\n${lines.join("\n")}`;
+  if (text.length > SHEET_TEXT_LIMIT) {
+    throw new Error(
+      `Esta planilha tem ${rows.length} linhas. Divida-a em arquivos menores (por exemplo, um por mês) para importar sem cortes.`,
+    );
+  }
+  return text;
 }
 
 async function prepareSheet(file: File): Promise<PreparedDocument> {
@@ -162,7 +183,7 @@ async function prepareSheet(file: File): Promise<PreparedDocument> {
   }
 
   const buffer = await file.arrayBuffer();
-  const wb = XLSX.read(buffer, { type: "array" });
+  const wb = XLSX.read(buffer, { type: "array", cellDates: true });
   const sheet = wb.Sheets[wb.SheetNames[0] ?? ""];
   if (!sheet) return { source: "sheet", text: `Arquivo vazio: ${file.name}` };
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
