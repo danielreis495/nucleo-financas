@@ -8,7 +8,12 @@
 import type { BankOwnerRole } from "./types";
 
 export type BankItemConfig = { itemId: string; ownerRole: BankOwnerRole };
-export type PluggyCredentials = { clientId: string; clientSecret: string };
+export type PluggyCredentials = {
+  clientId: string;
+  clientSecret: string;
+  /** Outros segredos a tentar se a Pluggy recusar o primeiro. */
+  alternateSecrets?: string[];
+};
 
 function env(name: string) {
   // Tolera aspas ou espaços colados junto ao valor no painel da Vercel.
@@ -40,6 +45,13 @@ export function credentialsFor(role: BankOwnerRole): PluggyCredentials | null {
   }
   // O nome com "CLIENTE" também é aceito porque foi assim que a variável foi criada na Vercel.
   const clientId = env("PLUGGY_CLIENT_ID") ?? env("PLUGGY_CLIENTE_ID");
-  const clientSecret = env("PLUGGY_CLIENT_SECRET");
-  return clientId && clientSecret ? { clientId, clientSecret } : null;
+  // O segredo também pode estar em "PLUGGY_CLIENT_SECRET_id" (nome usado no painel da
+  // Vercel). Os dois são tentados; vale o que a Pluggy aceitar.
+  const secrets = [env("PLUGGY_CLIENT_SECRET_id"), env("PLUGGY_CLIENT_SECRET")].filter(
+    (value, index, all): value is string =>
+      Boolean(value) && value !== clientId && all.indexOf(value) === index,
+  );
+  if (!clientId || secrets.length === 0) return null;
+  const [clientSecret, ...alternateSecrets] = secrets;
+  return { clientId, clientSecret, alternateSecrets };
 }

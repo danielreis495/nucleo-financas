@@ -77,10 +77,23 @@ function shape(value: string) {
 }
 
 export async function createApiKey(credentials: PluggyCredentials): Promise<string> {
+  const secrets = [credentials.clientSecret, ...(credentials.alternateSecrets ?? [])];
+  let lastError: Error | null = null;
+  for (const clientSecret of secrets) {
+    try {
+      return await requestApiKey(credentials.clientId, clientSecret);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  throw lastError ?? new Error("A Pluggy não devolveu a chave de acesso.");
+}
+
+async function requestApiKey(clientId: string, clientSecret: string): Promise<string> {
   const res = await fetch(`${BASE}/auth`, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify(credentials),
+    body: JSON.stringify({ clientId, clientSecret }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -91,12 +104,13 @@ export async function createApiKey(credentials: PluggyCredentials): Promise<stri
     } catch {
       // resposta sem JSON: usa o texto
     }
-    detail = detail.replaceAll(credentials.clientSecret, "***").slice(0, 200);
+    detail = detail.replaceAll(clientSecret, "***").slice(0, 200);
     throw new Error(
       res.status === 401 || res.status === 403
-        ? "A Pluggy recusou as chaves. Confira PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET na Vercel."
+        ? "A Pluggy recusou as chaves. Confira PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET na Vercel " +
+          `(Client ID: ${shape(clientId)}; Client Secret: ${shape(clientSecret)}).`
         : `Pluggy /auth respondeu HTTP ${res.status}${detail ? `: ${detail}` : ""} ` +
-          `(Client ID: ${shape(credentials.clientId)}; Client Secret: ${shape(credentials.clientSecret)})`,
+          `(Client ID: ${shape(clientId)}; Client Secret: ${shape(clientSecret)})`,
     );
   }
   const json = (await res.json()) as { apiKey?: string };
