@@ -15,7 +15,7 @@ type SnapshotResult =
   | Denied;
 
 const SETUP_MESSAGE =
-  "Falta configurar a senha da casa (APP_PASSWORD) nas variáveis de ambiente da Vercel.";
+  "Falta configurar a senha da casa (NUCLEO_ACCESS_CODE ou APP_PASSWORD) nas variáveis de ambiente da Vercel.";
 
 async function guard(): Promise<Denied | null> {
   const session = await import("./session");

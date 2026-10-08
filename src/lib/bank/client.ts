@@ -32,6 +32,18 @@ let inFlight: Promise<void> | null = null;
 
 function apply(snapshot: BankSnapshot) {
   const finance = useFinanceStore.getState();
+  const bankState = buildBankState(snapshot, finance.people);
+  // Sem nenhuma conta vinda do banco (ex.: PLUGGY_ITEMS ainda não configurado), não trata
+  // como primeira conexão: apagar o histórico local aqui deixaria o app vazio.
+  const empty = bankState.accounts.length === 0 && bankState.transactions.length === 0;
+  if (!finance.bankBootstrapped && empty) {
+    useBankStatus.setState({
+      institutions: [],
+      lastSync: snapshot.lastSync,
+      lastSuccessAt: snapshot.lastSuccessAt,
+    });
+    return;
+  }
   // Primeira conexão com o banco: começa do zero (pedido do casal) e some a casa de exemplo.
   if (finance.demo) finance.clearAll();
   const people = useFinanceStore.getState().people;

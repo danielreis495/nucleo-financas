@@ -148,37 +148,41 @@ export function dailySpend(rows: Transaction[], key: string) {
 
 export function upcomingInstallments(state: FinanceState, fromIso: string, limit = 8) {
   return state.transactions
-    .filter((t) => t.installmentId && t.date >= fromIso)
+    .filter(
+      (t) =>
+        t.installmentId &&
+        t.status === "scheduled" &&
+        !t.reconciledPaymentId &&
+        !t.manualPayment &&
+        t.date >= fromIso,
+    )
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(0, limit);
 }
 
+/** Parcela já aconteceu: veio de fatura/extrato, foi conciliada ou confirmada. */
+function installmentSettled(t: Transaction) {
+  return t.status === "posted" || Boolean(t.reconciledPaymentId || t.manualPayment);
+}
+
 export function planProgress(state: FinanceState, planId: string) {
+  const bankProgress = bankPlanProgress(state, planId);
+  if (bankProgress) return bankProgress;
   const txs = state.transactions.filter((t) => t.installmentId === planId);
   const plan = state.plans.find((p) => p.id === planId);
-  if (plan?.source === "bank") {
-    // Open Finance: a parcela N só aparece quando cai na fatura, então as anteriores já foram cobradas.
-    const total = plan.totalCount;
-    const charged = Math.max(
-      0,
-      ...txs.filter((t) => t.status === "posted").map((t) => t.installmentIndex ?? 0),
-    );
-    const remaining = txs
-      .filter((t) => t.status === "scheduled")
-      .sort((a, b) => a.date.localeCompare(b.date));
-    return {
-      paid: Math.min(total, charged),
-      total,
-      remainingAmount: sumBy(remaining, (t) => t.amount),
-      next: remaining[0] ?? null,
-      unverifiedPast: 0,
-    };
-  }
-  const importedPast = plan?.importedCurrentIndex ? Math.max(0, plan.importedCurrentIndex - 1) : 0;
-  const paidVisible = txs.filter((t) => Boolean(t.reconciledPaymentId || t.manualPayment)).length;
   const total = plan?.totalCount ?? txs.length;
-  const paid = Math.min(total, paidVisible);
-  const remaining = txs.filter((t) => !t.reconciledPaymentId && !t.manualPayment);
+  // Parcelas anteriores à primeira importada não têm linha própria, mas o
+  // documento ("3/10") comprova que já foram cobradas.
+  const firstKnownIndex = Math.min(
+    ...txs.map((t) => t.installmentIndex ?? Number.POSITIVE_INFINITY),
+    plan?.importedCurrentIndex ?? Number.POSITIVE_INFINITY,
+  );
+  const importedPast = Number.isFinite(firstKnownIndex) && plan?.importedCurrentIndex
+    ? Math.max(0, firstKnownIndex - 1)
+    : 0;
+  const paidVisible = txs.filter(installmentSettled).length;
+  const paid = Math.min(total, importedPast + paidVisible);
+  const remaining = txs.filter((t) => !installmentSettled(t));
   const remainingAmount = sumBy(remaining, (t) => t.amount);
   const next = remaining.sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
   return { paid, total, remainingAmount, next, unverifiedPast: importedPast };
@@ -329,5 +333,30 @@ export function financialSnapshot(state: FinanceState, key: string): FinancialSn
     recoveryTarget,
     transactionCount: posted.length,
     incomeCount: incomes.length,
+  };
+}
+
+/**
+ * Open Finance: a parcela N só aparece quando cai na fatura, então as anteriores
+ * já foram cobradas. Retorna null para planos que não vieram do banco.
+ */
+function bankPlanProgress(state: FinanceState, planId: string) {
+  const plan = state.plans.find((p) => p.id === planId);
+  if (plan?.source !== "bank") return null;
+  const txs = state.transactions.filter((t) => t.installmentId === planId);
+  const total = plan.totalCount;
+  const charged = Math.max(
+    0,
+    ...txs.filter((t) => t.status === "posted").map((t) => t.installmentIndex ?? 0),
+  );
+  const remaining = txs
+    .filter((t) => t.status === "scheduled")
+    .sort((a, b) => a.date.localeCompare(b.date));
+  return {
+    paid: Math.min(total, charged),
+    total,
+    remainingAmount: sumBy(remaining, (t) => t.amount),
+    next: (remaining[0] ?? null) as Transaction | null,
+    unverifiedPast: 0,
   };
 }

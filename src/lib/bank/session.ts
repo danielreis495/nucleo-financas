@@ -1,5 +1,6 @@
 /**
  * "Senha da casa": um único segredo (APP_PASSWORD na Vercel) compartilhado pelo casal.
+ * Sem APP_PASSWORD, usa o mesmo código do Núcleo IA (NUCLEO_ACCESS_CODE): uma senha só.
  * Após acertar a senha, o aparelho guarda um cookie assinado por 180 dias.
  * Somente servidor: importe apenas de dentro de handlers.
  */
@@ -14,8 +15,12 @@ function env(name: string) {
   return value ? value : undefined;
 }
 
+function housePassword() {
+  return env("APP_PASSWORD") ?? env("NUCLEO_ACCESS_CODE");
+}
+
 export function appPasswordConfigured() {
-  return Boolean(env("APP_PASSWORD"));
+  return Boolean(housePassword());
 }
 
 async function sha256(text: string) {
@@ -25,13 +30,13 @@ async function sha256(text: string) {
 
 /** Trocar APP_PASSWORD invalida todas as sessões abertas. */
 async function signingKey() {
-  const password = env("APP_PASSWORD");
+  const password = housePassword();
   if (!password) return null;
   return sha256(`nucleo-casa|${password}|${env("PLUGGY_CLIENT_SECRET") ?? ""}`);
 }
 
 export async function passwordMatches(input: string) {
-  const password = env("APP_PASSWORD");
+  const password = housePassword();
   if (!password) return false;
   const [a, b] = await Promise.all([sha256(input), sha256(password)]);
   let diff = 0;
