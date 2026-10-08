@@ -244,6 +244,7 @@ function CapturaPage() {
         markFile(`Erro: ${result.error}`);
         return;
       }
+      if ("warning" in result && result.warning) toast.warning(result.warning);
       if (!result.items.length) {
         toast.error("Não achei lançamentos nesse arquivo.");
         markFile("Sem lançamentos encontrados");

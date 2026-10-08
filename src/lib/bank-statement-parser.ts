@@ -21,6 +21,9 @@ function isoFromBr(raw: string) {
   return match ? `${match[3]}-${match[2]}-${match[1]}` : null;
 }
 
+/** Nomes padrão do app que não identificam ninguém num extrato. */
+const PLACEHOLDER_NAMES = new Set(["voce", "casa", "eu", "familia", "lar"]);
+
 function householdTransfer(description: string, people: { name: string }[]) {
   const text = normalize(description);
   if (!/^pix transf\b|^transferencia\b|^ted\b/.test(text)) return false;
@@ -28,8 +31,15 @@ function householdTransfer(description: string, people: { name: string }[]) {
   for (const person of people) {
     const tokens = normalize(person.name)
       .split(" ")
-      .filter((token) => token.length >= 4);
-    if (tokens.some((token) => words.has(token))) return true;
+      .filter((token) => token.length >= 3 && !["de", "da", "do", "das", "dos"].includes(token));
+    if (!tokens.length || tokens.every((token) => PLACEHOLDER_NAMES.has(token))) continue;
+    // Nome completo cadastrado: exige primeiro e último nome. Só o primeiro nome
+    // cadastrado: aceita, já que é assim que a pessoa foi registrada na casa.
+    const matched =
+      tokens.length >= 2
+        ? words.has(tokens[0]) && words.has(tokens[tokens.length - 1])
+        : tokens[0].length >= 4 && words.has(tokens[0]);
+    if (matched) return true;
   }
   return false;
 }
@@ -143,26 +153,58 @@ export function isTabularBankStatement(text: string | undefined) {
   return datedLines >= 5 && statementSignals(text) >= 2;
 }
 
-function yearHintFromText(text: string | undefined) {
-  const matches = (text ?? "").match(/\b20\d{2}\b/g) ?? [];
-  const years = matches.map(Number).filter((year) => year >= 2020 && year <= 2100);
-  return years.length ? years[years.length - 1] : new Date().getFullYear();
+/** Data mais recente escrita por extenso (dd/mm/aaaa) no documento: fim do período ou emissão. */
+function referenceDateFromText(text: string | undefined) {
+  const dates = [...(text ?? "").matchAll(/\b(\d{2})\/(\d{2})\/(20\d{2})\b/g)]
+    .map((m) => `${m[3]}-${m[2]}-${m[1]}`)
+    .filter((iso) => Number(iso.slice(5, 7)) >= 1 && Number(iso.slice(5, 7)) <= 12)
+    .sort();
+  return dates.length ? dates[dates.length - 1] : null;
 }
 
-function dateFromBankLine(raw: string, yearHint: number) {
+function isoToday() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Datas sem ano (dd/mm) recebem o ano da data de referência do documento. Se
+ * isso colocar o lançamento depois da referência (ex.: 28/12 num extrato
+ * emitido em 05/01), ele pertence ao ano anterior.
+ */
+export function inferYearForDayMonth(day: string, month: string, referenceIso: string) {
+  const year = Number(referenceIso.slice(0, 4));
+  const candidate = `${year}-${month}-${day}`;
+  return candidate > referenceIso ? `${year - 1}-${month}-${day}` : candidate;
+}
+
+function dateFromBankLine(raw: string, referenceIso: string) {
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) return isoFromBr(raw);
   const match = raw.match(/^(\d{2})\/(\d{2})$/);
-  return match ? `${yearHint}-${match[2]}-${match[1]}` : null;
+  return match ? inferYearForDayMonth(match[1], match[2], referenceIso) : null;
 }
 
 function signedAmount(raw: string, dc: string | undefined) {
-  const parsed = money(raw.replace(/^\+/, ""));
+  const parsed = money(raw.replace(/^[+-]/, ""));
   if (parsed === null) return null;
-  if (raw.trim().startsWith("-")) return -Math.abs(parsed);
-  if (dc?.toUpperCase() === "D") return -Math.abs(parsed);
-  if (dc?.toUpperCase() === "C") return Math.abs(parsed);
-  return parsed;
+  if (raw.trim().startsWith("-")) return { value: -Math.abs(parsed), explicit: true };
+  if (dc?.toUpperCase() === "D") return { value: -Math.abs(parsed), explicit: true };
+  if (dc?.toUpperCase() === "C") return { value: Math.abs(parsed), explicit: true };
+  if (raw.trim().startsWith("+")) return { value: Math.abs(parsed), explicit: true };
+  return { value: Math.abs(parsed), explicit: false };
 }
+
+function balanceValue(raw: string | undefined, dc: string | undefined) {
+  if (!raw) return null;
+  const parsed = money(raw.replace(/^[+-]/, ""));
+  if (parsed === null) return null;
+  return raw.trim().startsWith("-") || dc?.toUpperCase() === "D" ? -Math.abs(parsed) : Math.abs(parsed);
+}
+
+const LINE_PATTERN =
+  /^(\d{2}\/\d{2}(?:\/\d{4})?)\s+(.+?)\s+(?:R\$\s*)?([+-]?[\d.]+,\d{2})\s*([CD])?(?:\s+(?:R\$\s*)?([+-]?[\d.]+,\d{2})\s*([CD])?)?$/i;
+
+const BALANCE_LINE = /^SALDO(?: DO DIA| FINAL| EM CONTA| ANTERIOR| INICIAL)?$/i;
 
 export function analyzeTabularBankStatement(
   text: string | undefined,
@@ -173,57 +215,95 @@ export function analyzeTabularBankStatement(
     return { items: [], confidence: 0, candidateLines: 0, matchedLines: 0 };
   }
 
-  const yearHint = yearHintFromText(text);
+  const referenceIso = referenceDateFromText(text) ?? isoToday();
   const institution = institutionFromText(text);
   const candidates = text
     .split("\n")
     .map((line) => line.replace(/\s+/g, " ").trim())
     .filter((line) => /^\d{2}\/\d{2}(?:\/\d{4})?\b/.test(line));
 
-  const rows: ExtractedItem[] = [];
+  type Parsed = { item: ExtractedItem; explicit: boolean; balance: number | null };
+  const parsedRows: Parsed[] = [];
   let matchedLines = 0;
+  let lastBalance: number | null = null;
+  let explicitSigns = 0;
+  let resolvedByBalance = 0;
 
   for (const line of candidates) {
-    const match = line.match(
-      /^(\d{2}\/\d{2}(?:\/\d{4})?)\s+(.+?)\s+(?:R\$\s*)?([+-]?[\d.]+,\d{2})\s*([CD])?(?:\s+(?:R\$\s*)?[+-]?[\d.]+,\d{2}\s*[CD]?)?$/i,
-    );
+    const match = line.match(LINE_PATTERN);
     if (!match) continue;
     matchedLines += 1;
 
-    const [, rawDate, rawDescription, rawValue, dc] = match;
-    if (/^SALDO(?: DO DIA| FINAL| EM CONTA)?$/i.test(rawDescription.trim())) continue;
+    const [, rawDate, rawDescription, rawValue, dc, rawBalance, balanceDc] = match;
+    if (BALANCE_LINE.test(rawDescription.trim())) {
+      // Linha de saldo: o próprio valor é o saldo corrente.
+      lastBalance = balanceValue(rawBalance ?? rawValue, rawBalance ? balanceDc : dc);
+      continue;
+    }
 
     const signed = signedAmount(rawValue, dc);
-    const date = dateFromBankLine(rawDate, yearHint);
-    if (signed === null || signed === 0 || !date) continue;
+    const date = dateFromBankLine(rawDate, referenceIso);
+    if (signed === null || signed.value === 0 || !date) continue;
+
+    let value = signed.value;
+    let explicit = signed.explicit;
+    const balance = balanceValue(rawBalance, balanceDc);
+    // Sem sinal nem C/D (colunas separadas de Crédito/Débito): o saldo corrente
+    // diz se o dinheiro entrou ou saiu.
+    if (!explicit && balance !== null && lastBalance !== null) {
+      const delta = balance - lastBalance;
+      if (Math.abs(Math.abs(delta) - Math.abs(value)) < 0.01) {
+        value = delta < 0 ? -Math.abs(value) : Math.abs(value);
+        explicit = true;
+        resolvedByBalance += 1;
+      }
+    }
+    if (signed.explicit) explicitSigns += 1;
+    if (balance !== null) lastBalance = balance;
 
     const description = rawDescription.trim();
     const person =
       people.find((candidate) => {
-        const first = normalize(candidate.name).split(" ").find((token) => token.length >= 4);
+        const first = normalize(candidate.name)
+          .split(" ")
+          .find((token) => token.length >= 4 && !PLACEHOLDER_NAMES.has(token));
         return first ? new RegExp(`\\b${first}\\b`).test(normalize(description)) : false;
       }) ?? null;
 
-    rows.push({
-      id: uid(),
-      description,
-      merchant: merchantFromDescription(description),
-      amount: Math.abs(signed),
-      date,
-      type: signed > 0 ? "income" : "expense",
-      nature: natureFor(description, people),
-      category: categoryFor(description, signed),
-      personId: person?.id ?? defaultPersonId,
-      selected: true,
-      installment: null,
+    parsedRows.push({
+      explicit,
+      balance,
+      item: {
+        id: uid(),
+        description,
+        merchant: merchantFromDescription(description),
+        amount: Math.abs(value),
+        date,
+        type: value > 0 ? "income" : "expense",
+        nature: natureFor(description, people),
+        category: categoryFor(description, value),
+        personId: person?.id ?? defaultPersonId,
+        selected: true,
+        installment: null,
+      },
     });
   }
+
+  const rows = parsedRows.map((row) => row.item);
+  // Se o documento não marca débito/crédito em nenhuma linha e o saldo não
+  // resolveu todas, não sabemos a direção do dinheiro: não usamos o caminho
+  // rápido local (a leitura cai para a IA, que vê o layout das colunas).
+  const unresolved = parsedRows.filter((row) => !row.explicit).length;
+  const ambiguousDirection = explicitSigns === 0 && unresolved > 0;
+  void resolvedByBalance;
 
   const signals = statementSignals(text);
   const coverage = candidates.length ? matchedLines / candidates.length : 0;
   const volumeScore = rows.length >= 10 ? 1 : rows.length >= 5 ? 0.75 : rows.length >= 3 ? 0.45 : 0;
   const signalScore = Math.min(1, signals / 3);
-  const confidence = Math.min(1, coverage * 0.55 + signalScore * 0.25 + volumeScore * 0.2);
+  const confidence = ambiguousDirection
+    ? 0
+    : Math.min(1, coverage * 0.55 + signalScore * 0.25 + volumeScore * 0.2);
 
   return {
     items: rows,

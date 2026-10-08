@@ -1,4 +1,5 @@
 import type { CategoryId, ExtractedItem, TxNature } from "./types";
+import { parseMoneyValue } from "./money";
 import { uid } from "./utils";
 
 function normalize(value: string) {
@@ -12,18 +13,7 @@ function normalize(value: string) {
 }
 
 function parseMoney(value: string | undefined) {
-  if (!value) return null;
-  const raw = value.replace(/R\$/gi, "").trim();
-  const negative = /^-/.test(raw) || /^\(.*\)$/.test(raw);
-  const cleaned = raw
-    .replace(/[()]/g, "")
-    .replace(/\s/g, "")
-    .replace(/\./g, "")
-    .replace(",", ".")
-    .replace(/^\+/, "");
-  const parsed = Number(cleaned);
-  if (!Number.isFinite(parsed)) return null;
-  return negative ? -Math.abs(parsed) : parsed;
+  return parseMoneyValue(value);
 }
 
 function parseDate(value: string | undefined) {

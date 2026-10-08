@@ -1,4 +1,4 @@
-import type { InstallmentKind, Transaction } from "./types";
+import type { InstallmentKind, InstallmentPlan, Transaction } from "./types";
 
 function nameTokens(value: string | undefined) {
   return (value ?? "")
@@ -60,4 +60,73 @@ export function isInstallmentReconciliationCandidate(
 
 export function allowsManualInstallmentPayment(kind: InstallmentKind) {
   return kind !== "card";
+}
+
+type PlanLike = Pick<
+  InstallmentPlan,
+  "id" | "title" | "merchant" | "installmentAmount" | "totalCount"
+>;
+
+type InstallmentRowLike = Pick<
+  Transaction,
+  | "id"
+  | "installmentId"
+  | "installmentIndex"
+  | "status"
+  | "reconciledPaymentId"
+  | "manualPayment"
+  | "originInstitution"
+  | "merchant"
+  | "description"
+>;
+
+export type ImportedInstallmentMatch =
+  | { kind: "realize"; planId: string; rowId: string }
+  | { kind: "already_imported"; planId: string; rowId: string }
+  | { kind: "add_row"; planId: string }
+  | null;
+
+function sameInstitution(left: string | undefined, right: string | undefined) {
+  if (!left || !right) return true;
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+/**
+ * Uma parcela que aparece numa nova fatura/extrato pertence ao plano já
+ * cadastrado quando valor, quantidade total e nome batem. Nesse caso a linha
+ * prevista do plano é "realizada" em vez de nascer um plano duplicado.
+ */
+export function matchImportedInstallment(
+  item: { merchant: string; description: string; amount: number; installment: { current: number; total: number } },
+  originInstitution: string | undefined,
+  plans: PlanLike[],
+  rows: InstallmentRowLike[],
+): ImportedInstallmentMatch {
+  const candidateName = `${item.merchant} ${item.description}`;
+  let alreadyImported: ImportedInstallmentMatch = null;
+  let addRow: ImportedInstallmentMatch = null;
+
+  for (const plan of plans) {
+    if (plan.totalCount !== item.installment.total) continue;
+    if (Math.round(plan.installmentAmount * 100) !== Math.round(item.amount * 100)) continue;
+    const planRows = rows.filter((row) => row.installmentId === plan.id);
+    if (!planRows.every((row) => sameInstitution(row.originInstitution, originInstitution))) continue;
+    if (!installmentNamesMatch(candidateName, [plan.title, plan.merchant, planRows[0]?.merchant])) continue;
+
+    const row = planRows.find((entry) => entry.installmentIndex === item.installment.current);
+    if (!row) {
+      addRow ??= { kind: "add_row", planId: plan.id };
+      continue;
+    }
+    if (row.status === "posted") {
+      // Mesma parcela já importada (ex.: o mesmo documento de novo). Se houver
+      // outro plano igual com a linha ainda prevista, ele tem prioridade.
+      alreadyImported ??= { kind: "already_imported", planId: plan.id, rowId: row.id };
+      continue;
+    }
+    if (row.reconciledPaymentId || row.manualPayment) continue;
+    return { kind: "realize", planId: plan.id, rowId: row.id };
+  }
+
+  return alreadyImported ?? addRow;
 }

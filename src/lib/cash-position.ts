@@ -1,4 +1,10 @@
 import { useFinanceStore } from "./store";
+import {
+  billIdentityKey,
+  canonicalInstitution,
+  normalizeKeyPart,
+  uniqueCardBills,
+} from "./bill-identity";
 import type { FinancialDocumentSummary, Transaction } from "./types";
 
 function monthEnd(key: string) {
@@ -7,36 +13,8 @@ function monthEnd(key: string) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function normalizeKeyPart(value: string | undefined) {
-  return (value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function canonicalInstitution(value: string | undefined) {
-  const text = normalizeKeyPart(value);
-  if (/\bnubank\b|\bnu pagamentos\b/.test(text)) return "nubank";
-  if (/\bitau\b/.test(text)) return "itau";
-  if (/\bbradesco\b/.test(text)) return "bradesco";
-  if (/\bsantander\b/.test(text)) return "santander";
-  if (/\bbanco do brasil\b/.test(text)) return "banco do brasil";
-  if (/\bcaixa economica\b|\bcaixa\b/.test(text)) return "caixa";
-  if (/\bbanco inter\b|\binter\b/.test(text)) return "inter";
-  if (/\bc6 bank\b|\bc6\b/.test(text)) return "c6";
-  return text;
-}
-
 function summaryAccountKey(summary: FinancialDocumentSummary) {
   return `${canonicalInstitution(summary.institution)}|${normalizeKeyPart(summary.holderName)}`;
-}
-
-function billIdentityKey(summary: FinancialDocumentSummary) {
-  return [canonicalInstitution(summary.institution), summary.referenceMonth].join("|");
 }
 
 function paymentInstitution(tx: Transaction) {
@@ -75,21 +53,14 @@ function paymentCanBelongToBill(payment: Transaction, bill: FinancialDocumentSum
 }
 
 function uniqueBillsFrom(summaries: FinancialDocumentSummary[]) {
-  const bills = summaries
-    .filter(
+  return uniqueCardBills(
+    summaries.filter(
       (summary) =>
         summary.kind === "credit_card_bill" &&
         typeof summary.billTotal === "number" &&
         summary.billTotal > 0,
-    )
-    .sort((a, b) => (b.importedAt ?? "").localeCompare(a.importedAt ?? ""));
-
-  const map = new Map<string, FinancialDocumentSummary>();
-  for (const bill of bills) {
-    const key = billIdentityKey(bill);
-    if (!map.has(key)) map.set(key, bill);
-  }
-  return [...map.values()];
+    ),
+  );
 }
 
 function reconcilePayments(bills: FinancialDocumentSummary[], transactions: Transaction[]) {

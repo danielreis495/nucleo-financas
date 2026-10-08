@@ -261,15 +261,24 @@ export function summarizeFinancialDocument(
   return bankStatementSummary(text) ?? cardBillSummary(text, today);
 }
 
-function holderTokens(names: Array<string | undefined>) {
-  const out = new Set<string>();
-  for (const name of names) {
-    const tokens = normalize(name ?? "")
-      .split(" ")
-      .filter((token) => token.length >= 4);
-    for (const token of tokens) out.add(token);
-  }
-  return out;
+const NAME_PARTICLES = new Set(["de", "da", "do", "das", "dos", "e"]);
+
+function nameParts(name: string | undefined) {
+  return normalize(name ?? "")
+    .split(" ")
+    .filter((token) => token.length >= 2 && !NAME_PARTICLES.has(token));
+}
+
+/**
+ * O titular é reconhecido quando primeiro nome E último sobrenome aparecem no
+ * movimento. Só um sobrenome em comum ("Silva", "Santos") não basta: isso
+ * transformaria Pix para terceiros em transferência e os tiraria do orçamento.
+ */
+export function mentionsHolder(text: string, holderName: string | undefined) {
+  const parts = nameParts(holderName);
+  if (parts.length < 2) return false;
+  const words = new Set(normalize(text).split(" "));
+  return words.has(parts[0]) && words.has(parts[parts.length - 1]);
 }
 
 export function matchesKnownHolderTransfer(
@@ -277,13 +286,10 @@ export function matchesKnownHolderTransfer(
   holderNames: Array<string | undefined>,
 ) {
   if (row.nature && row.nature !== "budget") return false;
-  const tokens = holderTokens(holderNames);
-  if (!tokens.size) return false;
   const text = normalize(`${row.merchant} ${row.description}`);
   if (!/\bpix transf\b|\btransferencia\b|\btransfer\b|\bted\b/.test(text)) return false;
   if (/ltda|marketplace|comercio|servicos|cnpj/.test(text)) return false;
-  const words = new Set(text.split(" "));
-  return [...tokens].some((token) => words.has(token));
+  return holderNames.some((name) => mentionsHolder(text, name));
 }
 
 export function applyKnownHolderTransfers(

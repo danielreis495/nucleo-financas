@@ -23,11 +23,12 @@ import { CATEGORIES } from "./categories";
 import {
   allowsManualInstallmentPayment,
   isInstallmentReconciliationCandidate,
+  matchImportedInstallment,
 } from "./installment-rules";
 import { natureOf, reconcileTransactionNatures } from "./movement-nature";
 import { createSeedState } from "./seed";
 import { paymentMethodForItem, type ImportOrigin } from "./transaction-origin";
-import { uid, isoDate, todayIso, monthKey } from "./utils";
+import { uid, addMonthsIso, todayIso, monthKey } from "./utils";
 
 type FinanceActions = {
   confirmInstallmentPaid: (
@@ -137,33 +138,25 @@ function expandNewPlan(input: {
   natureLocked?: boolean;
   origin?: ImportOrigin;
   paymentMethod?: string;
+  /** Veio de um documento: a parcela atual é real e as anteriores não são inventadas. */
+  imported?: boolean;
 }): Transaction[] {
-  const start = new Date(input.startDate + "T12:00:00");
-  const today = todayIso();
   const rows: Transaction[] = [];
-  const current = input.currentIndex ?? 1;
+  const current = Math.min(Math.max(1, input.currentIndex ?? 1), input.totalCount);
+  const imported = Boolean(input.imported);
   const cardByBill =
     input.origin?.originKind === "credit_card" && Boolean(input.origin.competenceMonth);
-  const firstIndex = cardByBill ? current : 1;
+  const firstIndex = imported ? current : 1;
+  const anchorDate = imported ? (input.currentSourceDate ?? input.startDate) : input.startDate;
 
   for (let index = firstIndex; index <= input.totalCount; index++) {
-    let date: string;
-    let status: "posted" | "scheduled";
-    let competenceMonth: string | undefined;
-
-    if (cardByBill && input.origin?.competenceMonth) {
-      const offset = index - current;
-      const sourceDate = new Date(`${input.currentSourceDate ?? input.startDate}T12:00:00`);
-      sourceDate.setMonth(sourceDate.getMonth() + offset);
-      date = isoDate(sourceDate);
-      competenceMonth = addMonthsKey(input.origin.competenceMonth, offset);
-      status = index === current ? "posted" : "scheduled";
-    } else {
-      const d = new Date(start);
-      d.setMonth(d.getMonth() + (index - 1));
-      date = isoDate(d);
-      status = "scheduled";
-    }
+    const offset = imported ? index - current : index - 1;
+    const date = addMonthsIso(anchorDate, offset);
+    const status: "posted" | "scheduled" = imported && index === current ? "posted" : "scheduled";
+    const competenceMonth =
+      cardByBill && input.origin?.competenceMonth
+        ? addMonthsKey(input.origin.competenceMonth, index - current)
+        : undefined;
 
     rows.push({
       id: uid(),
@@ -193,6 +186,18 @@ function expandNewPlan(input: {
     });
   }
   return rows;
+}
+
+const PAYMENT_FIELDS: (keyof Transaction)[] = ["date", "accountId", "status", "amount", "type"];
+
+function changesAny(row: Transaction, patch: Partial<Transaction>, keys: (keyof Transaction)[]) {
+  return keys.some((key) => key in patch && patch[key] !== row[key]);
+}
+
+function paymentLinkBroken(rows: Transaction[], paymentId: string, patch: Partial<Transaction>) {
+  const payment = rows.find((row) => row.id === paymentId);
+  if (!payment) return true;
+  return changesAny(payment, patch, ["amount", "type", "status", "nature"]);
 }
 
 export const useFinanceStore = create<FinanceState & FinanceActions>()(
@@ -314,11 +319,14 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
 
         set({
           plans: state.plans.filter((plan) => plan.id !== id),
-          // Pagamentos importados não possuem installmentId e são preservados.
-          // Somente as parcelas geradas pelo plano (e seus vínculos) são removidas.
-          transactions: state.transactions.filter(
-            (transaction) => transaction.installmentId !== id,
-          ),
+          // Parcelas previstas somem com o plano. Parcelas que já aconteceram
+          // (vieram de fatura/extrato ou tiveram pagamento confirmado) são gastos
+          // reais: continuam no extrato, só sem o vínculo com o plano.
+          transactions: state.transactions.flatMap((transaction) => {
+            if (transaction.installmentId !== id) return [transaction];
+            if (transaction.status !== "posted") return [];
+            return [{ ...transaction, installmentId: null, manualPayment: undefined }];
+          }),
           advice: null,
         });
         return true;
@@ -423,39 +431,32 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
       updateTransaction: (id, patch) =>
         set({
           transactions: get().transactions.map((t) => {
-            const linked = t.reconciledPaymentId && (t.id === id || t.reconciledPaymentId === id);
-            const next =
-              t.id === id
-                ? {
-                    ...t,
-                    ...patch,
-                    manualPayment: undefined,
-                    reconciliationHistory: t.manualPayment
-                      ? [
-                          ...(t.reconciliationHistory ?? []),
-                          {
-                            paymentId: id,
-                            at: new Date().toISOString(),
-                            action: "undo_manual" as const,
-                          },
-                        ]
-                      : t.reconciliationHistory,
-                  }
-                : t;
-            return linked
-              ? {
-                  ...next,
-                  reconciledPaymentId: undefined,
-                  reconciliationHistory: [
-                    ...(t.reconciliationHistory ?? []),
-                    {
-                      paymentId: t.reconciledPaymentId!,
-                      at: new Date().toISOString(),
-                      action: "unlink" as const,
-                    },
-                  ],
-                }
-              : next;
+            const at = new Date().toISOString();
+            const self = t.id === id;
+            const history = [...(t.reconciliationHistory ?? [])];
+            let next: Transaction = self ? { ...t, ...patch } : t;
+
+            // Baixa manual só é desfeita quando os dados do pagamento mudam.
+            if (self && t.manualPayment && changesAny(t, patch, PAYMENT_FIELDS)) {
+              next = { ...next, manualPayment: undefined };
+              history.push({ paymentId: id, at, action: "undo_manual" });
+            }
+
+            // Conciliação só é desfeita quando a mudança invalida o vínculo
+            // (valor, tipo, situação ou natureza). Origem, categoria e descrição não.
+            const linkBroken =
+              t.reconciledPaymentId &&
+              ((self && changesAny(t, patch, ["amount", "type"])) ||
+                (t.reconciledPaymentId === id && paymentLinkBroken(get().transactions, id, patch)));
+            if (linkBroken) {
+              history.push({ paymentId: t.reconciledPaymentId!, at, action: "unlink" });
+              next = { ...next, reconciledPaymentId: undefined };
+            }
+
+            if (next !== t && history.length !== (t.reconciliationHistory ?? []).length) {
+              next = { ...next, reconciliationHistory: history };
+            }
+            return next;
           }),
           advice: null,
         }),
@@ -538,26 +539,83 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
         const selected = items.filter((i) => i.selected && i.amount > 0);
         const newPlans: FinanceState["plans"] = [];
         const newTx: Transaction[] = [];
+        // Cópia de trabalho: parcelas previstas que este documento realiza.
+        const existing = [...get().transactions];
+        const existingPlans = get().plans;
+        const cardByBill = origin?.originKind === "credit_card" && Boolean(origin.competenceMonth);
+
+        const originFields = (item: ExtractedItem) => ({
+          source,
+          originLabel: origin?.originLabel,
+          originInstitution: origin?.originInstitution,
+          originKind: origin?.originKind,
+          sourceFileName: origin?.sourceFileName,
+          paymentMethod: origin ? paymentMethodForItem(item, origin) : undefined,
+        });
+
         for (const item of selected) {
           const nature = natureOf(item);
-          const paymentMethod = origin ? paymentMethodForItem(item, origin) : undefined;
-          const cardByBill =
-            origin?.originKind === "credit_card" && Boolean(origin.competenceMonth);
 
           if (item.installment && item.installment.total > 1 && nature === "budget") {
-            const planId = uid();
-            let startDate: string;
-            if (cardByBill && origin?.competenceMonth) {
-              const firstMonth = addMonthsKey(
-                origin.competenceMonth,
-                -(item.installment.current - 1),
-              );
-              startDate = `${firstMonth}-01`;
-            } else {
-              const start = new Date(item.date + "T12:00:00");
-              start.setMonth(start.getMonth() - (item.installment.current - 1));
-              startDate = isoDate(start);
+            const total = item.installment.total;
+            const current = Math.min(Math.max(1, item.installment.current), total);
+            const match = matchImportedInstallment(
+              { ...item, installment: { current, total } },
+              origin?.originInstitution,
+              [...newPlans, ...existingPlans],
+              [...newTx, ...existing],
+            );
+
+            if (match?.kind === "already_imported") continue;
+
+            if (match?.kind === "realize") {
+              const index = existing.findIndex((row) => row.id === match.rowId);
+              const inNew = newTx.findIndex((row) => row.id === match.rowId);
+              const row = index >= 0 ? existing[index] : newTx[inNew];
+              const realized: Transaction = {
+                ...row,
+                ...originFields(item),
+                date: item.date,
+                status: "posted",
+                accountId: accountId ?? row.accountId ?? null,
+                competenceMonth: cardByBill ? origin?.competenceMonth : row.competenceMonth,
+              };
+              if (index >= 0) existing[index] = realized;
+              else newTx[inNew] = realized;
+              continue;
             }
+
+            if (match?.kind === "add_row") {
+              const plan = [...newPlans, ...existingPlans].find((entry) => entry.id === match.planId)!;
+              newTx.push({
+                id: uid(),
+                date: item.date,
+                description: `${plan.title} ${current}/${total}`,
+                merchant: plan.merchant,
+                amount: item.amount,
+                type: "expense",
+                nature,
+                natureLocked: item.natureLocked,
+                status: "posted",
+                category: plan.category,
+                personId: plan.personId,
+                accountId: accountId ?? null,
+                split: null,
+                installmentId: plan.id,
+                installmentIndex: current,
+                installmentTotal: total,
+                ...originFields(item),
+                competenceMonth: cardByBill ? origin?.competenceMonth : undefined,
+                createdAt: new Date().toISOString(),
+              });
+              continue;
+            }
+
+            const planId = uid();
+            const startDate =
+              cardByBill && origin?.competenceMonth
+                ? `${addMonthsKey(origin.competenceMonth, -(current - 1))}-01`
+                : addMonthsIso(item.date, -(current - 1));
 
             newPlans.push({
               id: planId,
@@ -565,12 +623,12 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
               merchant: item.merchant,
               kind: item.installment.kind,
               installmentAmount: item.amount,
-              totalCount: item.installment.total,
+              totalCount: total,
               startDate,
               personId: item.personId,
               category: item.category,
               account: "",
-              importedCurrentIndex: cardByBill ? item.installment.current : undefined,
+              importedCurrentIndex: current,
             });
             newTx.push(
               ...expandNewPlan({
@@ -579,18 +637,19 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
                 merchant: item.merchant,
                 kind: item.installment.kind,
                 installmentAmount: item.amount,
-                totalCount: item.installment.total,
+                totalCount: total,
                 startDate,
                 currentSourceDate: item.date,
                 personId: item.personId,
                 category: item.category,
-                currentIndex: item.installment.current,
+                currentIndex: current,
                 accountId,
                 source,
                 nature,
                 natureLocked: item.natureLocked,
                 origin,
-                paymentMethod,
+                paymentMethod: originFields(item).paymentMethod,
+                imported: true,
               }),
             );
           } else {
@@ -611,20 +670,15 @@ export const useFinanceStore = create<FinanceState & FinanceActions>()(
               installmentId: null,
               installmentIndex: null,
               installmentTotal: null,
-              source,
-              originLabel: origin?.originLabel,
-              originInstitution: origin?.originInstitution,
-              originKind: origin?.originKind,
-              sourceFileName: origin?.sourceFileName,
-              paymentMethod,
+              ...originFields(item),
               competenceMonth: cardByBill ? origin?.competenceMonth : undefined,
               createdAt: new Date().toISOString(),
             });
           }
         }
         set({
-          transactions: reconcileTransactionNatures([...newTx, ...get().transactions]),
-          plans: [...newPlans, ...get().plans],
+          transactions: reconcileTransactionNatures([...newTx, ...existing]),
+          plans: [...newPlans, ...existingPlans],
           advice: null,
           demo: false,
         });

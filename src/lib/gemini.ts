@@ -53,7 +53,9 @@ export type ChatResult = { ok: true; text: string } | { ok: false; error: string
 
 export type AiGenerate = (input: ChatInput) => Promise<ChatResult>;
 
-type ExtractResult = { ok: true; items: ExtractedItem[] } | { ok: false; error: string };
+type ExtractResult =
+  | { ok: true; items: ExtractedItem[]; warning?: string }
+  | { ok: false; error: string };
 
 function parseJsonObject(raw: string): unknown {
   const trimmed = raw.trim();
@@ -70,21 +72,45 @@ function asAmount(value: unknown) {
   return Math.abs(parseLooseAmount(String(value ?? "")));
 }
 
-function asDate(value: unknown, today: string) {
+function addDaysIso(iso: string, days: number) {
+  const date = new Date(`${iso}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function validIso(iso: string) {
+  const date = new Date(`${iso}T12:00:00`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === iso;
+}
+
+/**
+ * Documentos financeiros descrevem o passado. Uma data mais de 45 dias à frente
+ * de hoje quase sempre é ano errado (fatura de dezembro lida em janeiro), então
+ * recua um ano. Agendamentos próximos continuam como vieram.
+ */
+function pullBackImplausibleFuture(iso: string, today: string) {
+  if (iso <= addDaysIso(today, 45)) return iso;
+  const previous = `${Number(iso.slice(0, 4)) - 1}${iso.slice(4)}`;
+  return validIso(previous) && previous <= addDaysIso(today, 45) ? previous : iso;
+}
+
+export function asDate(value: unknown, today: string, allowFuture = false) {
+  const fix = (iso: string) => (allowFuture ? iso : pullBackImplausibleFuture(iso, today));
   const raw = String(value ?? "").trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return validIso(raw) ? fix(raw) : today;
   const br = raw.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
   if (br) {
     const d = br[1].padStart(2, "0");
     const m = br[2].padStart(2, "0");
     let y = Number(br[3]);
     if (y < 100) y += 2000;
-    return `${y}-${m}-${d}`;
+    const iso = `${y}-${m}-${d}`;
+    return validIso(iso) ? fix(iso) : today;
   }
   const dm = raw.match(/^(\d{1,2})[/\-.](\d{1,2})$/);
   if (dm) {
-    const year = today.slice(0, 4);
-    return `${year}-${dm[2].padStart(2, "0")}-${dm[1].padStart(2, "0")}`;
+    const iso = `${today.slice(0, 4)}-${dm[2].padStart(2, "0")}-${dm[1].padStart(2, "0")}`;
+    return validIso(iso) ? fix(iso) : today;
   }
   return today;
 }
@@ -290,7 +316,7 @@ FATURA DE CARTÃO:
 - Quando houver marcadores [COLUNA ESQUERDA] e [COLUNA DIREITA], termine uma coluna antes de ler a outra; lançamentos na mesma altura são compras diferentes.
 - Extraia somente os lançamentos cobrados na fatura atual.
 - Ignore completamente “Compras parceladas - próximas faturas”, “Próxima fatura”, “Demais faturas”, simulações e opções de parcelamento: são previsões, não cobranças atuais.
-- Data da compra, não vencimento. Ano de referência: ${data.today.slice(0, 4)}.
+- Data da compra, não vencimento. Se a linha não mostrar o ano, use o ano que deixa a data no passado em relação a hoje (${data.today}); ex.: compra de dezembro numa fatura lida em janeiro é do ano anterior.
 - Parcela 03/10 => installment {current:3,total:10,kind:"card"}; amount é a parcela.
 - “PARCELAMENTO DE FATURA 04/04” é a parcela atual de um financiamento: expense + financing, installment 04/04, e entra uma única vez.
 - Estorno/crédito: type="income", nature="budget".
@@ -317,7 +343,7 @@ GERAL:
 - Não invente nem normalize nomes.`;
 }
 
-function parseExtractedItems(rawText: string, data: ExtractPayload, maxItems = 200): ExtractedItem[] {
+function parseExtractedItems(rawText: string, data: ExtractPayload, maxItems = 600): ExtractedItem[] {
   const parsed = parseJsonObject(rawText) as { items?: unknown[] };
   return (parsed.items ?? [])
     .slice(0, maxItems)
@@ -461,6 +487,11 @@ async function extractOne(
   }
 }
 
+/** Acima disso o texto é dividido em blocos em vez de cortado. */
+const SINGLE_CALL_TEXT_LIMIT = 30000;
+/** Teto de blocos por documento para caber no tempo de uma função serverless. */
+const MAX_CHUNKS = 16;
+
 export async function extractWithGenerator(data: ExtractPayload, generate: AiGenerate): Promise<ExtractResult> {
   const system = buildExtractionSystem(data);
   const sourceText = data.text ?? "";
@@ -472,12 +503,22 @@ export async function extractWithGenerator(data: ExtractPayload, generate: AiGen
   // Extratos longos precisam ser divididos antes da primeira chamada.
   // Tamanho em caracteres sozinho não é suficiente: um extrato Itaú de várias
   // páginas pode ter texto compacto, mas exigir centenas de objetos no JSON.
+  // Qualquer outro texto longo (planilha grande, por exemplo) também é dividido:
+  // nunca cortamos o documento em silêncio.
+  const longDocument = statementText.length > SINGLE_CALL_TEXT_LIMIT;
   const shouldChunk =
-    bankStatement &&
-    (statementText.length > 6500 || pageCount >= 3 || candidateLines > 45);
+    longDocument ||
+    (bankStatement && (statementText.length > 6500 || pageCount >= 3 || candidateLines > 45));
 
   if (shouldChunk) {
-    const chunks = splitStatementText(statementText, 3800);
+    const chunkSize = bankStatement ? 3800 : 12000;
+    const chunks = splitStatementText(statementText, chunkSize);
+    if (chunks.length > MAX_CHUNKS) {
+      return {
+        ok: false,
+        error: "Este documento é grande demais para uma leitura só. Divida-o em arquivos menores (por exemplo, um por mês).",
+      };
+    }
     const allItems: ExtractedItem[] = [];
     for (const chunk of chunks) {
       const result = await extractOne(generate, system, `Documento:\n${chunk}`, data, undefined, 6000);
@@ -485,13 +526,15 @@ export async function extractWithGenerator(data: ExtractPayload, generate: AiGen
       allItems.push(...result.items);
     }
 
-    // Se um extrato claramente grande voltar com poucos itens, não aceitamos
-    // silenciosamente uma importação parcial.
+    // Se um extrato claramente grande voltar com poucos itens, tentamos de novo
+    // com blocos menores. Se ainda assim faltar, avisamos em vez de aceitar uma
+    // importação parcial em silêncio.
     const minimumExpected =
       candidateLines >= 20 ? Math.max(8, Math.floor(candidateLines * 0.55)) : 1;
-    if (allItems.length < minimumExpected) {
+    let best = allItems;
+    if (bankStatement && allItems.length < minimumExpected) {
       const retryChunks = splitStatementText(statementText, 2200);
-      if (retryChunks.length > chunks.length) {
+      if (retryChunks.length > chunks.length && retryChunks.length <= MAX_CHUNKS * 2) {
         const retryItems: ExtractedItem[] = [];
         for (const chunk of retryChunks) {
           const result = await extractOne(
@@ -505,21 +548,22 @@ export async function extractWithGenerator(data: ExtractPayload, generate: AiGen
           if (!result.ok) return result;
           retryItems.push(...result.items);
         }
-        if (retryItems.length >= allItems.length) {
-          return retryItems.length
-            ? { ok: true, items: retryItems.slice(0, 240) }
-            : { ok: false, error: "Não achei lançamentos nesse extrato." };
-        }
+        if (retryItems.length >= allItems.length) best = retryItems;
       }
     }
 
-    return allItems.length
-      ? { ok: true, items: allItems.slice(0, 240) }
-      : { ok: false, error: "Não achei lançamentos nesse extrato." };
+    if (!best.length) return { ok: false, error: "Não achei lançamentos nesse extrato." };
+    return bankStatement && best.length < minimumExpected
+      ? {
+          ok: true,
+          items: best,
+          warning: `Leitura possivelmente incompleta: encontrei ${best.length} lançamentos, mas o extrato parece ter cerca de ${candidateLines} linhas. Confira antes de salvar.`,
+        }
+      : { ok: true, items: best };
   }
 
   const text = statementText
-    ? `Documento:\n${statementText.slice(0, 36000)}`
+    ? `Documento:\n${statementText}`
     : "Extraia os lançamentos destas imagens. Se for fatura, cada compra é um item.";
   const single = await extractOne(generate, system, text, data, data.images, 8192);
   if (single.ok) return single;
@@ -535,7 +579,7 @@ export async function extractWithGenerator(data: ExtractPayload, generate: AiGen
         if (!result.ok) return result;
         allItems.push(...result.items);
       }
-      if (allItems.length) return { ok: true, items: allItems.slice(0, 240) };
+      if (allItems.length) return { ok: true, items: allItems };
     }
   }
 
@@ -689,7 +733,7 @@ Quando houver uma ação completa e pronta para confirmação, use:
           kind,
           installmentAmount,
           totalCount,
-          startDate: asDate(raw.startDate, new Date().toISOString().slice(0, 10)),
+          startDate: asDate(raw.startDate, new Date().toISOString().slice(0, 10), true),
           personId,
           category: asCategory(raw.category),
           institution,

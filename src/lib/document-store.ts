@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { billIdentityKey, sameCardBill } from "./bill-identity";
 import type { FinancialDocumentSummary } from "./types";
 import { uid } from "./utils";
 
@@ -23,13 +24,7 @@ function summaryKey(summary: FinancialDocumentSummary) {
     ].join("|");
   }
 
-  // Para fatura mensal, titular pode variar entre leituras (ou faltar no PDF extraído).
-  // A identidade estável é instituição + mês de referência.
-  return [
-    summary.kind,
-    normalizeKeyPart(summary.institution),
-    summary.referenceMonth,
-  ].join("|");
+  return ["bill", billIdentityKey(summary)].join("|");
 }
 
 function dedupeSummaries(items: FinancialDocumentSummary[]) {
@@ -37,8 +32,16 @@ function dedupeSummaries(items: FinancialDocumentSummary[]) {
     (b.importedAt ?? "").localeCompare(a.importedAt ?? ""),
   );
   const seen = new Set<string>();
+  const bills: FinancialDocumentSummary[] = [];
   const result: FinancialDocumentSummary[] = [];
   for (const item of sorted) {
+    if (item.kind === "credit_card_bill") {
+      // Faturas de titulares diferentes no mesmo banco/mês continuam separadas.
+      if (bills.some((kept) => sameCardBill(kept, item))) continue;
+      bills.push(item);
+      result.push(item);
+      continue;
+    }
     const key = summaryKey(item);
     if (seen.has(key)) continue;
     seen.add(key);
