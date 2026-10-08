@@ -86,3 +86,15 @@ describe("parcelamentos vindos do banco", () => {
     assert.ok(key.length <= 100);
   });
 });
+
+describe("mês das parcelas sem fatura informada", () => {
+  it("cada parcela cai no seu mês a partir da data da compra", () => {
+    const state = buildBankState(snapshot([parcel(1), parcel(2), parcel(3)]), people);
+    const months = state.transactions
+      .filter((t) => t.status === "posted")
+      .map((t) => t.competenceMonth)
+      .sort();
+    assert.deepEqual(months, ["2026-07", "2026-08", "2026-09"]);
+    assert.equal(state.plans[0].startDate, "2026-07-01");
+  });
+});
