@@ -156,6 +156,24 @@ export function upcomingInstallments(state: FinanceState, fromIso: string, limit
 export function planProgress(state: FinanceState, planId: string) {
   const txs = state.transactions.filter((t) => t.installmentId === planId);
   const plan = state.plans.find((p) => p.id === planId);
+  if (plan?.source === "bank") {
+    // Open Finance: a parcela N só aparece quando cai na fatura, então as anteriores já foram cobradas.
+    const total = plan.totalCount;
+    const charged = Math.max(
+      0,
+      ...txs.filter((t) => t.status === "posted").map((t) => t.installmentIndex ?? 0),
+    );
+    const remaining = txs
+      .filter((t) => t.status === "scheduled")
+      .sort((a, b) => a.date.localeCompare(b.date));
+    return {
+      paid: Math.min(total, charged),
+      total,
+      remainingAmount: sumBy(remaining, (t) => t.amount),
+      next: remaining[0] ?? null,
+      unverifiedPast: 0,
+    };
+  }
   const importedPast = plan?.importedCurrentIndex ? Math.max(0, plan.importedCurrentIndex - 1) : 0;
   const paidVisible = txs.filter((t) => Boolean(t.reconciledPaymentId || t.manualPayment)).length;
   const total = plan?.totalCount ?? txs.length;
