@@ -133,7 +133,15 @@ describe("mês das compras no cartão", () => {
 
   it("compra depois do fechamento entra na fatura do mês seguinte", () => {
     const state = buildBankState(
-      { ...snapshot([purchase("2026-09-30")]), accounts: [closing] },
+      { ...snapshot([{ ...purchase("2026-09-30"), billMonth: "2026-11" }]), accounts: [closing] },
+      people,
+    );
+    assert.equal(state.transactions[0].competenceMonth, "2026-10");
+  });
+
+  it("sem a fatura informada, usa o dia de fechamento", () => {
+    const state = buildBankState(
+      { ...snapshot([{ ...purchase("2026-09-30"), billMonth: null }]), accounts: [closing] },
       people,
     );
     assert.equal(state.transactions[0].competenceMonth, "2026-10");
@@ -222,5 +230,205 @@ describe("casos vistos no app (prints de 09/10/2026)", () => {
     );
     assert.equal(state.plans.length, 1);
     assert.equal(state.transactions.filter((t) => t.status === "scheduled").length, 0);
+  });
+});
+
+describe("dados reais do Open Finance (exportação de 10/10/2026)", () => {
+  const itau: BankAccountRow = {
+    ...card,
+    id: "itau-card",
+    institution: "Itaú",
+    number: "4731",
+    dueDate: "2026-10-05",
+    closeDate: null,
+  };
+  const row = (extra: Partial<BankTransactionRow>): BankTransactionRow => ({
+    ...parcel(1),
+    accountId: "itau-card",
+    installmentNumber: null,
+    installmentTotal: null,
+    purchaseDate: null,
+    ...extra,
+  });
+  const snap = (rows: BankTransactionRow[], extraAccounts: BankAccountRow[] = []) => ({
+    ...snapshot(rows),
+    accounts: [itau, ...extraAccounts],
+  });
+
+  it("o mês do gasto vem da fatura (vencimento dia 5 = fechou no mês anterior)", () => {
+    const state = buildBankState(
+      snap([row({ id: "a", date: "2026-09-17", billMonth: "2026-10" })]),
+      people,
+      "2026-10-10",
+    );
+    assert.equal(state.transactions[0].competenceMonth, "2026-09");
+  });
+
+  it("parcelas futuras enviadas pelo banco como pendentes são previsão, não gasto", () => {
+    const ibmr = (index: number, bill: string, status: string) =>
+      row({
+        id: `ibmr-${index}`,
+        merchant: `Recupera IBMR EAD ${String(index).padStart(2, "0")}/12`,
+        description: `Recupera IBMR EAD ${String(index).padStart(2, "0")}/12`,
+        amount: 29.33,
+        installmentNumber: index,
+        installmentTotal: 12,
+        purchaseDate: "2026-10-05",
+        billMonth: bill,
+        status,
+      });
+    const rows = [ibmr(1, "2026-11", "PENDING")];
+    for (let i = 2; i <= 12; i += 1) {
+      const month = String(10 + i).padStart(2, "0");
+      const bill = 10 + i <= 12 ? `2026-${month}` : `2027-${String(i - 2).padStart(2, "0")}`;
+      rows.push(ibmr(i, bill, "PENDING"));
+    }
+    const state = buildBankState(snap(rows), people, "2026-10-10");
+    assert.equal(state.plans.length, 1);
+    const posted = state.transactions.filter((t) => t.status === "posted");
+    const scheduled = state.transactions.filter((t) => t.status === "scheduled");
+    assert.equal(posted.length, 1, "só a 1/12 (fatura aberta) é gasto");
+    assert.equal(scheduled.length, 11);
+    assert.equal(scheduled.sort((a, b) => a.date.localeCompare(b.date))[0].date, "2026-12-05");
+  });
+
+  it("anuidade do Itaú com data de compra diferente em cada parcela vira um parcelamento só", () => {
+    const anu = (index: number, date: string, bill: string, status = "POSTED") =>
+      row({
+        id: `anu-${index}`,
+        merchant: `ANUIDADE DIFERENCI${String(index).padStart(2, "0")}/12`,
+        description: `ANUIDADE DIFERENCI${String(index).padStart(2, "0")}/12`,
+        amount: 25,
+        installmentNumber: index,
+        installmentTotal: 12,
+        date,
+        purchaseDate: date,
+        billMonth: bill,
+        status,
+      });
+    const state = buildBankState(
+      snap([
+        anu(1, "2026-02-24", "2026-04"),
+        anu(2, "2026-03-30", "2026-05"),
+        anu(7, "2026-08-30", "2026-10"),
+        anu(9, "2026-02-23", "2026-12", "PENDING"),
+      ]),
+      people,
+      "2026-10-10",
+    );
+    assert.equal(state.plans.length, 1);
+  });
+
+  it("parcelamento de fatura soma na fatura, mas não conta de novo no orçamento", () => {
+    const state = buildBankState(
+      snap([
+        row({ id: "compra", date: "2026-09-10", billMonth: "2026-10", amount: 3185.62 }),
+        row({
+          id: "parc",
+          date: "2026-08-30",
+          billMonth: "2026-10",
+          amount: 248.43,
+          category: "Credit card payment",
+          operationType: "PAGAMENTO",
+          description: "PARCELAMEN FATURA 04/04",
+          merchant: "",
+        }),
+        row({
+          id: "pag",
+          date: "2026-09-29",
+          billMonth: "2026-10",
+          amount: 3434.05,
+          direction: "CREDIT",
+          category: "Credit card payment",
+          operationType: "PAGAMENTO_FATURA",
+          description: "Pagamento recebido",
+          merchant: "",
+        }),
+      ]),
+      people,
+      "2026-10-10",
+    );
+    const parc = state.transactions.find((t) => t.id === "bank:parc")!;
+    assert.equal(parc.nature, "financing");
+    const bill = state.summaries.find(
+      (s) => s.kind === "credit_card_bill" && s.dueDate === "2026-10-05",
+    )!;
+    assert.equal(bill.billTotal, 3434.05);
+    assert.equal(bill.referenceMonth, "2026-09");
+    assert.equal(bill.paidOn, "2026-09-29");
+  });
+
+  it("pagamento mínimo não marca a fatura como paga", () => {
+    const state = buildBankState(
+      snap([
+        row({ id: "compra", date: "2026-09-10", billMonth: "2026-10", amount: 1000 }),
+        row({
+          id: "minimo",
+          date: "2026-10-05",
+          billMonth: "2026-11",
+          amount: 150,
+          direction: "CREDIT",
+          category: "Credit card payment",
+          operationType: "PAGAMENTO_FATURA",
+          description: "Pagamento recebido",
+          merchant: "",
+        }),
+      ]),
+      people,
+      "2026-10-10",
+    );
+    const bill = state.summaries.find((s) => s.dueDate === "2026-10-05")!;
+    assert.equal(bill.paidOn, undefined);
+  });
+
+  it("excluir parcelamento também tira as parcelas futuras enviadas pelo banco", () => {
+    const shopee = (index: number, bill: string, status: string) =>
+      row({
+        id: `shopee-${index}`,
+        merchant: "Shopee",
+        description: `SHOPEE *QCYAUDIOOF0${index}/06`,
+        amount: 68.34,
+        installmentNumber: index,
+        installmentTotal: 6,
+        purchaseDate: "2026-10-05",
+        billMonth: bill,
+        status,
+      });
+    const rows = [
+      shopee(1, "2026-11", "PENDING"),
+      shopee(2, "2026-12", "PENDING"),
+      shopee(3, "2027-01", "PENDING"),
+    ];
+    const first = buildBankState(snap(rows), people, "2026-10-10");
+    const key = hiddenPlanKey(first.plans[0].id);
+    const state = buildBankState(
+      {
+        ...snap(rows),
+        overrides: [{ txId: key, category: null, personId: null, nature: HIDDEN_PLAN_NATURE }],
+      },
+      people,
+      "2026-10-10",
+    );
+    assert.equal(state.plans.length, 0);
+    assert.deepEqual(
+      state.transactions.map((t) => [t.id, t.status]),
+      [["bank:shopee-1", "posted"]],
+    );
+  });
+
+  it("saldo da conta vem do banco", () => {
+    const checking: BankAccountRow = {
+      ...card,
+      id: "conta",
+      type: "BANK",
+      subtype: "CHECKING_ACCOUNT",
+      institution: "Itaú",
+      balance: 45.26,
+      updatedAt: "2026-10-10T01:22:13Z",
+    };
+    const state = buildBankState(snap([], [checking]), people, "2026-10-10");
+    const balance = state.summaries.find((s) => s.kind === "bank_statement")!;
+    assert.equal(balance.balance, 45.26);
+    assert.equal(balance.balanceDate, "2026-10-10");
   });
 });
