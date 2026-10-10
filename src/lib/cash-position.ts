@@ -5,7 +5,51 @@ import {
   normalizeKeyPart,
   uniqueCardBills,
 } from "./bill-identity";
+import { bankSummaries } from "./bank/summary-registry";
 import type { FinancialDocumentSummary, Transaction } from "./types";
+
+/**
+ * Junta os documentos importados com os dados do Open Finance. Para um banco conectado,
+ * o saldo do banco substitui o extrato em PDF do mesmo mês, e a fatura do banco
+ * substitui a fatura em PDF do mesmo mês.
+ */
+export function withBankSummaries(
+  documents: FinancialDocumentSummary[],
+  bank: FinancialDocumentSummary[],
+) {
+  if (bank.length === 0) return documents;
+  // Só o mês do saldo do banco: extratos em PDF de meses anteriores continuam valendo.
+  const balanceKey = (s: FinancialDocumentSummary) =>
+    `${canonicalInstitution(s.institution)}|${(s.balanceDate ?? s.referenceMonth).slice(0, 7)}`;
+  const bankBalances = new Set(bank.filter((s) => s.kind === "bank_statement").map(balanceKey));
+  const bankBills = new Set(
+    bank
+      .filter((s) => s.kind === "credit_card_bill")
+      .map((s) => `${canonicalInstitution(s.institution)}|${s.referenceMonth}`),
+  );
+  const docKey = (doc: FinancialDocumentSummary) =>
+    doc.kind === "bank_statement"
+      ? `s|${balanceKey(doc)}`
+      : `b|${canonicalInstitution(doc.institution)}|${doc.referenceMonth}`;
+  const bankKey = (s: FinancialDocumentSummary) =>
+    s.kind === "bank_statement"
+      ? `s|${balanceKey(s)}`
+      : `b|${canonicalInstitution(s.institution)}|${s.referenceMonth}`;
+  // PDFs de duas pessoas no mesmo banco e mês (ex.: cartão do casal, só um conectado):
+  // não dá para saber qual deles o banco substitui, então ficam os PDFs.
+  const holders = new Map<string, Set<string>>();
+  for (const doc of documents) {
+    const key = docKey(doc);
+    holders.set(key, (holders.get(key) ?? new Set()).add(normalizeKeyPart(doc.holderName)));
+  }
+  const ambiguous = (key: string) => (holders.get(key)?.size ?? 0) > 1;
+  const kept = documents.filter((doc) => {
+    const key = docKey(doc);
+    if (ambiguous(key)) return true;
+    return doc.kind === "bank_statement" ? !bankBalances.has(balanceKey(doc)) : !bankBills.has(key.slice(2));
+  });
+  return [...kept, ...bank.filter((s) => !ambiguous(bankKey(s)))];
+}
 
 function monthEnd(key: string) {
   const [year, month] = key.split("-").map(Number);
@@ -131,7 +175,9 @@ export function cashPositionForMonth(
   summaries: FinancialDocumentSummary[],
   month: string,
   transactions: Transaction[] = useFinanceStore.getState().transactions,
+  bank: FinancialDocumentSummary[] = bankSummaries(),
 ): CashPosition {
+  summaries = withBankSummaries(summaries, bank);
   const end = monthEnd(month);
   const statements = summaries
     .filter(
@@ -159,15 +205,15 @@ export function cashPositionForMonth(
   const paymentByBill = reconcilePayments(allBills, transactions);
 
   const relatedBills = allBills.filter((bill) => {
-    const payment = paymentByBill.get(billIdentityKey(bill));
+    const paymentDate = paymentByBill.get(billIdentityKey(bill))?.date ?? bill.paidOn;
     const dueMonth = bill.dueDate?.slice(0, 7);
-    return bill.referenceMonth === month || dueMonth === month || payment?.date.slice(0, 7) === month;
+    return bill.referenceMonth === month || dueMonth === month || paymentDate?.slice(0, 7) === month;
   });
 
   const billRows: CashBillRow[] = relatedBills
     .map((bill) => {
-      const payment = paymentByBill.get(billIdentityKey(bill));
-      const paidByMonthEnd = Boolean(payment && payment.date <= end);
+      const paymentDate = paymentByBill.get(billIdentityKey(bill))?.date ?? bill.paidOn;
+      const paidByMonthEnd = Boolean(paymentDate && paymentDate <= end);
       const dueMonth = bill.dueDate?.slice(0, 7) ?? bill.referenceMonth;
       const status: CashBillStatus = paidByMonthEnd
         ? "paid"
@@ -180,7 +226,7 @@ export function cashPositionForMonth(
         referenceMonth: bill.referenceMonth,
         dueDate: bill.dueDate,
         status,
-        paymentDate: paidByMonthEnd ? payment?.date : undefined,
+        paymentDate: paidByMonthEnd ? paymentDate : undefined,
       };
     })
     .sort((a, b) => (a.dueDate ?? "9999-12-31").localeCompare(b.dueDate ?? "9999-12-31"));
