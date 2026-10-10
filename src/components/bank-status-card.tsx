@@ -1,5 +1,6 @@
-import { AlertTriangle, Landmark, RefreshCw } from "lucide-react";
-import { refreshBank, useBankStatus } from "@/lib/bank/client";
+import { AlertTriangle, Download, Landmark, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+import { downloadBankSnapshot, refreshBank, useBankStatus } from "@/lib/bank/client";
 import { cn } from "@/lib/utils";
 
 function relativeTime(iso: string | null) {
@@ -62,6 +63,18 @@ export function BankStatusCard({ className }: { className?: string }) {
           <RefreshCw className={cn("size-4", busy && "animate-spin")} />
         </button>
       </div>
+      {phase === "ready" ? (
+        <button
+          type="button"
+          onClick={() => {
+            if (!downloadBankSnapshot()) toast.error("Os dados do banco ainda não carregaram.");
+          }}
+          className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-primary"
+        >
+          <Download className="size-3.5" />
+          Exportar dados do banco (para conferência)
+        </button>
+      ) : null}
       {problems.length > 0 ? (
         <div className="mt-3 flex gap-2 rounded-lg bg-warn-soft px-3 py-2 text-xs leading-relaxed text-warn">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
