@@ -5,6 +5,7 @@
 import type {
   Account,
   CategoryId,
+  FinancialDocumentSummary,
   InstallmentPlan,
   Person,
   Transaction,
@@ -55,9 +56,15 @@ export function mapBankCategory(category: string | null, direction: "DEBIT" | "C
 }
 
 /** Natureza vinda da própria classificação do banco; o resto fica com as regras do app. */
-export function bankNature(row: BankTransactionRow): TxNature | undefined {
+export function bankNature(row: BankTransactionRow, isCard = false): TxNature | undefined {
   const category = (row.category ?? "").toLowerCase();
   const operation = (row.operationType ?? "").toUpperCase();
+  // No cartão, "credit card payment" com débito é parcela de PARCELAMENTO DE FATURA (dívida
+  // da fatura antiga sendo paga), não um pagamento recebido: as compras originais já
+  // foram contadas, então fica fora do orçamento, mas continua somando na fatura.
+  if (isCard && row.direction === "DEBIT" && /credit card payment/.test(category)) {
+    return "financing";
+  }
   if (operation === "PAGAMENTO_FATURA" || /credit card payment/.test(category)) {
     return "card_payment";
   }
@@ -125,6 +132,26 @@ function cycleMonth(dateIso: string, account: BankAccountRow) {
   return close && Number(dateIso.slice(8, 10)) > close ? addMonthsKey(month, 1) : month;
 }
 
+function validMonth(value: string | null | undefined) {
+  return Boolean(value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value));
+}
+
+/**
+ * Mês do gasto de uma fatura. O banco informa a fatura pelo mês de VENCIMENTO; quando o
+ * vencimento cai no começo do mês (dia 5, por exemplo), a fatura fechou no mês anterior,
+ * que é o mês em que as compras foram feitas.
+ */
+function closingMonthOfBill(billMonth: string, account: BankAccountRow) {
+  const dueDay = Number(account.dueDate?.slice(8, 10) ?? "10");
+  return dueDay <= 20 ? addMonthsKey(billMonth, -1) : billMonth;
+}
+
+function addDaysIso(dateIso: string, days: number) {
+  const date = new Date(`${dateIso}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 /** Nome do estabelecimento sem o "01/12" da parcela, para mostrar no parcelamento. */
 export function installmentTitle(merchant: string) {
   const title = merchant
@@ -155,6 +182,8 @@ type Candidate = {
   amount: number;
   /** Mês (fechamento da fatura) em que a parcela foi cobrada. */
   month: string;
+  /** O mês veio da fatura informada pelo banco (exato), não de uma data. */
+  fromBill: boolean;
   purchaseDate: string | null;
   personId: string;
   category: CategoryId;
@@ -172,6 +201,8 @@ export type BankState = {
   accounts: Account[];
   transactions: Transaction[];
   plans: InstallmentPlan[];
+  /** Saldos e faturas no formato dos documentos importados, para o caixa real. */
+  summaries: FinancialDocumentSummary[];
 };
 
 /**
@@ -188,11 +219,13 @@ function chainInstallments(candidates: Candidate[]) {
   }
   const chains: Chain[] = [];
   for (const bucket of buckets.values()) {
+    // A ordem segue o mês da parcela. A "data da compra" não serve para separar compras:
+    // no Itaú ela repete a data de cada cobrança em vez da data original.
     const ordered = [...bucket].sort(
       (a, b) =>
-        (a.purchaseDate ?? "").localeCompare(b.purchaseDate ?? "") ||
         a.month.localeCompare(b.month) ||
-        a.index - b.index,
+        a.index - b.index ||
+        (a.purchaseDate ?? "").localeCompare(b.purchaseDate ?? ""),
     );
     const local: Chain[] = [];
     for (const candidate of ordered) {
@@ -200,9 +233,11 @@ function chainInstallments(candidates: Candidate[]) {
       const fit = local.find(
         (chain) =>
           !chain.members.some((member) => member.index === candidate.index) &&
-          Math.abs(monthsBetween(chain.startMonth, start)) <= 1 &&
-          sameInstallmentAmount(chain.amount, candidate.amount) &&
-          (!chain.purchaseDate || !candidate.purchaseDate || chain.purchaseDate === candidate.purchaseDate),
+          // Com o mês vindo da fatura, as parcelas da mesma compra começam no mesmo mês;
+          // só a data (menos precisa) ganha um mês de folga.
+          Math.abs(monthsBetween(chain.startMonth, start)) <=
+            (candidate.fromBill && chain.members.every((member) => member.fromBill) ? 0 : 1) &&
+          sameInstallmentAmount(chain.amount, candidate.amount),
       );
       if (fit) {
         fit.members.push(candidate);
@@ -283,10 +318,19 @@ export function buildBankState(
     const purchaseDate =
       row.purchaseDate && /^\d{4}-\d{2}-\d{2}/.test(row.purchaseDate) ? row.purchaseDate : null;
     const competenceMonth = isCard
-      ? installment && purchaseDate
-        ? addMonthsKey(cycleMonth(purchaseDate, account), index - 1)
-        : cycleMonth(row.date, account)
+      ? validMonth(row.billMonth)
+        ? closingMonthOfBill(row.billMonth!, account)
+        : installment && purchaseDate
+          ? addMonthsKey(cycleMonth(purchaseDate, account), index - 1)
+          : cycleMonth(row.date, account)
       : undefined;
+    // O banco já envia as parcelas futuras como "pendentes". Parcela 2 em diante de uma
+    // fatura que ainda vai fechar depois deste mês é previsão, não gasto feito.
+    const futureInstallment =
+      installment &&
+      index > 1 &&
+      (row.status ?? "").toUpperCase() === "PENDING" &&
+      Boolean(competenceMonth && competenceMonth > today.slice(0, 7));
 
     const tx: Transaction = {
       id: `${BANK_TX_PREFIX}${row.id}`,
@@ -295,9 +339,9 @@ export function buildBankState(
       merchant,
       amount: Math.abs(row.amount),
       type,
-      nature: overrideNature ?? bankNature(row),
+      nature: overrideNature ?? bankNature(row, isCard),
       natureLocked: Boolean(overrideNature),
-      status: "posted",
+      status: futureInstallment ? "scheduled" : "posted",
       category,
       personId,
       accountId: isCard ? null : `${BANK_TX_PREFIX}${account.id}`,
@@ -323,6 +367,7 @@ export function buildBankState(
         total,
         amount: Math.abs(row.amount),
         month: competenceMonth,
+        fromBill: validMonth(row.billMonth),
         purchaseDate,
         personId,
         category,
@@ -333,21 +378,37 @@ export function buildBankState(
 
   const currentMonth = today.slice(0, 7);
   const plans: InstallmentPlan[] = [];
+  const dropped = new Set<string>();
   for (const chain of chainInstallments(candidates)) {
     const first = chain.members[0];
     const { account, total } = first;
     // Mesmo formato de id das versões anteriores, para que parcelamentos já excluídos
     // continuem excluídos.
+    // A data da compra só identifica o parcelamento quando todas as parcelas concordam
+    // (Nubank); no Itaú ela muda a cada parcela, então vale o mês de início.
     const cents = Math.round(chain.amount * 100);
-    const planId = `bank-plan:${account.id}:${first.key}:${total}:${cents}:${chain.purchaseDate ?? chain.startMonth}`;
-    if (hiddenPlans.has(hiddenPlanKey(planId))) continue;
+    const dates = new Set(chain.members.map((member) => member.purchaseDate));
+    const anchor = dates.size === 1 && chain.purchaseDate ? chain.purchaseDate : chain.startMonth;
+    const planId = `bank-plan:${account.id}:${first.key}:${total}:${cents}:${anchor}`;
+    if (hiddenPlans.has(hiddenPlanKey(planId))) {
+      // Parcelamento excluído: as compras reais ficam; as parcelas futuras enviadas pelo
+      // banco somem junto, como prometido na exclusão.
+      for (const member of chain.members) if (member.tx.status === "scheduled") dropped.add(member.tx.id);
+      continue;
+    }
 
     const latest = chain.members.reduce((a, b) => (b.index > a.index ? b : a));
     const title = installmentTitle(latest.tx.merchant);
+    const dueDay = account.dueDate?.slice(8, 10) ?? "10";
+    const dueMonthOf = (month: string) =>
+      Number(dueDay) <= 20 ? addMonthsKey(month, 1) : month;
     for (const member of chain.members) {
       member.tx.installmentId = planId;
       member.tx.installmentIndex = member.index;
       member.tx.installmentTotal = total;
+      member.tx.description = `${title} ${member.index}/${total}`;
+      // Parcela futura enviada pelo banco: mostra o vencimento da fatura em que vai cair.
+      if (member.tx.status === "scheduled") member.tx.date = `${dueMonthOf(member.month)}-${dueDay}`;
     }
 
     plans.push({
@@ -365,22 +426,17 @@ export function buildBankState(
       source: "bank",
     });
 
-    // Parcelas que ainda vão cair nas próximas faturas, para a previsão. Uma parcela de
-    // um mês que já passou e não veio do banco não é "próxima": ela já foi cobrada fora
-    // da janela que o banco enviou, então não vira previsão no passado.
-    // O mês da parcela é o do fechamento; a data mostrada é o vencimento dessa fatura,
-    // que cai no mês seguinte quando o vencimento é antes do dia de fechamento.
-    const dueDay = account.dueDate?.slice(8, 10) ?? "10";
-    const close = closingDay(account);
-    const dueNextMonth = close !== null && Number(dueDay) < close;
-    for (let n = latest.index + 1; n <= total; n += 1) {
+    // Parcelas que o banco não enviou: as de meses futuros viram previsão; as de meses
+    // que já passaram foram cobradas fora da janela recebida e não viram "próxima".
+    const known = new Set(chain.members.map((member) => member.index));
+    for (let n = 1; n <= total; n += 1) {
+      if (known.has(n)) continue;
       const month = addMonthsKey(chain.startMonth, n - 1);
       if (month < currentMonth) continue;
-      const dueMonth = dueNextMonth ? addMonthsKey(month, 1) : month;
       transactions.push({
         ...latest.tx,
         id: `${planId}:${n}`,
-        date: `${dueMonth}-${dueDay}`,
+        date: `${dueMonthOf(month)}-${dueDay}`,
         description: `${title} ${n}/${total}`,
         amount: chain.amount,
         status: "scheduled",
@@ -391,7 +447,117 @@ export function buildBankState(
     }
   }
 
-  return { accounts, transactions, plans };
+  const kept = dropped.size ? transactions.filter((t) => !dropped.has(t.id)) : transactions;
+  const summaries = bankCashSummaries(snapshot, kept, currentMonth);
+  return { accounts, transactions: kept, plans, summaries };
+}
+
+/**
+ * Saldo de cada conta e fatura de cada cartão, como se fossem documentos importados.
+ * A fatura vem do banco quando ele informa o total; senão é somada a partir das compras
+ * do cartão daquele mês (gastos menos estornos, sem os pagamentos da fatura).
+ */
+function bankCashSummaries(
+  snapshot: BankSnapshot,
+  transactions: Transaction[],
+  currentMonth: string,
+): FinancialDocumentSummary[] {
+  const summaries: FinancialDocumentSummary[] = [];
+  for (const account of snapshot.accounts) {
+    if (account.type === "BANK") {
+      if (typeof account.balance !== "number") continue;
+      summaries.push({
+        id: `${BANK_TX_PREFIX}balance:${account.id}`,
+        kind: "bank_statement",
+        institution: account.institution,
+        holderName: accountLabel(account),
+        importedAt: account.updatedAt,
+        referenceMonth: account.updatedAt.slice(0, 7),
+        balance: account.balance,
+        balanceDate: account.updatedAt.slice(0, 10),
+      });
+      continue;
+    }
+
+    const dueDay = account.dueDate?.slice(8, 10) ?? "10";
+    const dueNextMonth = Number(dueDay) <= 20;
+    const fromBank = (snapshot.bills ?? []).filter(
+      (bill) => bill.accountId === account.id && bill.dueDate && typeof bill.totalAmount === "number",
+    );
+    const bankDueMonths = new Set(fromBank.map((bill) => bill.dueDate!.slice(0, 7)));
+    for (const bill of fromBank) {
+      summaries.push({
+        id: `${BANK_TX_PREFIX}bill:${bill.id}`,
+        kind: "credit_card_bill",
+        institution: account.institution,
+        holderName: cardLabel(account),
+        importedAt: account.updatedAt,
+        referenceMonth: dueNextMonth
+          ? addMonthsKey(bill.dueDate!.slice(0, 7), -1)
+          : bill.dueDate!.slice(0, 7),
+        billTotal: bill.totalAmount!,
+        dueDate: bill.dueDate!,
+      });
+    }
+
+    // Fatura que vence neste mês (já fechada) e a que está aberta agora.
+    const label = cardLabel(account);
+    const usedPayments = new Set<string>();
+    for (const spendMonth of [addMonthsKey(currentMonth, -1), currentMonth]) {
+      const dueMonth = dueNextMonth ? addMonthsKey(spendMonth, 1) : spendMonth;
+      if (bankDueMonths.has(dueMonth)) continue;
+      const isPayment = (t: Transaction) => t.type === "income" && t.nature === "card_payment";
+      const rows = transactions.filter(
+        (t) =>
+          t.originLabel === label &&
+          t.status === "posted" &&
+          t.competenceMonth === spendMonth &&
+          !isPayment(t),
+      );
+      const total =
+        Math.round(
+          rows.reduce((sum, t) => sum + (t.type === "expense" ? t.amount : -t.amount), 0) * 100,
+        ) / 100;
+      if (total <= 0) continue;
+      // Pagamento recebido no cartão entre o fechamento e alguns dias depois do vencimento.
+      // Só conta como fatura paga se os pagamentos cobrirem quase todo o valor: pagamento
+      // mínimo ou entrada de parcelamento não quitam a fatura. Um pagamento não é usado
+      // para duas faturas.
+      const dueDate = `${dueMonth}-${dueDay}`;
+      const payments = transactions
+        .filter(
+          (t) =>
+            t.originLabel === label &&
+            isPayment(t) &&
+            !usedPayments.has(t.id) &&
+            t.date >= `${spendMonth}-15` &&
+            t.date <= addDaysIso(dueDate, 10),
+        )
+        .sort((a, b) => a.date.localeCompare(b.date));
+      let covered = 0;
+      let paidOn: string | undefined;
+      for (const payment of payments) {
+        if (covered >= total * 0.8) break;
+        covered += payment.amount;
+        usedPayments.add(payment.id);
+        paidOn = payment.date;
+      }
+      const payment = covered >= total * 0.8 ? { date: paidOn! } : undefined;
+      summaries.push({
+        id: `${BANK_TX_PREFIX}bill:${account.id}:${dueMonth}`,
+        kind: "credit_card_bill",
+        institution: account.institution,
+        holderName: label,
+        importedAt: account.updatedAt,
+        // Mesmo critério das faturas em PDF: o mês de referência é o do fechamento.
+        referenceMonth: spendMonth,
+        billTotal: total,
+        dueDate,
+        paidOn: payment?.date,
+      });
+    }
+  }
+  return summaries;
 }
 
 /** Bancos conectados, para mostrar no app. */
