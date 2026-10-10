@@ -16,6 +16,7 @@ import {
 } from "./pluggy";
 import type {
   BankAccountRow,
+  BankBillRow,
   BankEditInput,
   BankItemInfo,
   BankMerchantRule,
@@ -320,6 +321,20 @@ export async function readSnapshot(): Promise<BankSnapshot> {
            to_char(last_updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_updated_at
     from bank_items
   `.catch(() => [] as Record<string, unknown>[]);
+  const billRows = await sql<Record<string, unknown>>`
+    select id, account_id, total_amount,
+           to_char(due_date, 'YYYY-MM-DD') as due_date,
+           to_char(close_date, 'YYYY-MM-DD') as close_date
+    from bank_bills
+    where due_date >= (current_date - interval '120 days')
+  `.catch(() => [] as Record<string, unknown>[]);
+  const bills: BankBillRow[] = billRows.map((row) => ({
+    id: String(row.id),
+    accountId: String(row.account_id),
+    dueDate: (row.due_date as string | null) ?? null,
+    closeDate: (row.close_date as string | null) ?? null,
+    totalAmount: num(row.total_amount),
+  }));
   const items: BankItemInfo[] = itemRows.map((row) => ({
     itemId: String(row.item_id),
     status: (row.status as string | null) ?? null,
@@ -387,6 +402,7 @@ export async function readSnapshot(): Promise<BankSnapshot> {
   return {
     accounts,
     items,
+    bills,
     transactions,
     overrides,
     rules,

@@ -155,6 +155,8 @@ export type FinancialDocumentSummary = {
   billTotal?: number;
   dueDate?: string;
   statementDate?: string;
+  /** Data do pagamento já identificado pela fonte (ex.: Open Finance). */
+  paidOn?: string;
 };
 
 export type FinanceState = {

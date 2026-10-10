@@ -61,9 +61,19 @@ export type BankItemInfo = {
   lastUpdatedAt: string | null;
 };
 
+export type BankBillRow = {
+  id: string;
+  accountId: string;
+  dueDate: string | null;
+  closeDate: string | null;
+  totalAmount: number | null;
+};
+
 export type BankSnapshot = {
   accounts: BankAccountRow[];
   items?: BankItemInfo[];
+  /** Faturas fechadas informadas pelo banco (quando o banco envia). */
+  bills?: BankBillRow[];
   transactions: BankTransactionRow[];
   overrides: BankOverride[];
   rules: BankMerchantRule[];

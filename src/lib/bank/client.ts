@@ -13,6 +13,7 @@ import {
   BANK_TX_PREFIX,
   HIDDEN_PLAN_NATURE,
 } from "./mapper";
+import { setBankSummaries } from "./summary-registry";
 import type { BankEditInput, BankSnapshot, BankSyncInfo } from "./types";
 
 export type BankPhase = "idle" | "loading" | "syncing" | "ready" | "login" | "setup" | "error";
@@ -85,7 +86,10 @@ function apply(snapshot: BankSnapshot) {
   // Primeira conexão com o banco: começa do zero (pedido do casal) e some a casa de exemplo.
   if (finance.demo) finance.clearAll();
   const people = useFinanceStore.getState().people;
-  useFinanceStore.getState().applyBankSnapshot(buildBankState(snapshot, people));
+  const state = buildBankState(snapshot, people);
+  // Antes de atualizar o store, para a tela já redesenhar com saldos e faturas do banco.
+  setBankSummaries(state.summaries);
+  useFinanceStore.getState().applyBankSnapshot(state);
   useBankStatus.setState({
     institutions: connectedInstitutions(snapshot),
     lastSync: snapshot.lastSync,

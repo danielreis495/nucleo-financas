@@ -261,3 +261,31 @@ describe("faturas do casal no mesmo banco", () => {
     assert.equal(cashPositionForMonth([first, second], "2026-09", []).billsDue, 1200);
   });
 });
+
+describe("caixa real com dados do banco", () => {
+  it("saldo do banco substitui o extrato em PDF do mesmo mês, sem somar os dois", async () => {
+    const { withBankSummaries } = await import("./cash-position.ts");
+    const pdf: FinancialDocumentSummary = {
+      id: "pdf",
+      kind: "bank_statement",
+      institution: "Itaú",
+      holderName: "DANIEL",
+      importedAt: "2026-10-02",
+      referenceMonth: "2026-10",
+      balance: 100,
+      balanceDate: "2026-10-02",
+    };
+    const old: FinancialDocumentSummary = { ...pdf, id: "old", referenceMonth: "2026-08", balanceDate: "2026-08-30" };
+    const bank: FinancialDocumentSummary = {
+      ...pdf,
+      id: "bank",
+      holderName: "Conta Itaú",
+      importedAt: "2026-10-10",
+      balance: 45.26,
+      balanceDate: "2026-10-10",
+    };
+    const merged = withBankSummaries([pdf, old], [bank]);
+    assert.deepEqual(merged.map((s) => s.id).sort(), ["bank", "old"]);
+    assert.equal(cashPositionForMonth([pdf], "2026-10", [], [bank]).cashBalance, 45.26);
+  });
+});
