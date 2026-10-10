@@ -47,8 +47,28 @@ function oldestBankUpdate(snapshot: BankSnapshot) {
 }
 
 let inFlight: Promise<void> | null = null;
+let lastSnapshot: BankSnapshot | null = null;
+
+/**
+ * Baixa os dados do banco exatamente como vieram do servidor (contas, movimentos,
+ * ajustes), para conferência. Não inclui senhas nem chaves.
+ */
+export function downloadBankSnapshot() {
+  if (!lastSnapshot) return false;
+  const blob = new Blob([JSON.stringify(lastSnapshot, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `nucleo-dados-banco-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return true;
+}
 
 function apply(snapshot: BankSnapshot) {
+  lastSnapshot = snapshot;
   const finance = useFinanceStore.getState();
   const bankState = buildBankState(snapshot, finance.people);
   // Sem nenhuma conta vinda do banco (ex.: PLUGGY_ITEMS ainda não configurado), não trata
