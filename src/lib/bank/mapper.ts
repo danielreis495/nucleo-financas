@@ -10,7 +10,7 @@ import type {
   Transaction,
   TxNature,
 } from "../types";
-import { addMonthsKey } from "../utils";
+import { addMonthsKey, todayIso } from "../utils";
 import type { BankAccountRow, BankOwnerRole, BankSnapshot, BankTransactionRow } from "./types";
 
 export const BANK_TX_PREFIX = "bank:";
@@ -22,7 +22,8 @@ export function merchantKey(value: string) {
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .replace(/\bparc(?:ela)?\.?\s*\d{1,2}\s*(?:\/|de)\s*\d{1,2}\b/g, " ")
-    .replace(/\b\d{1,2}\s*\/\s*\d{1,2}\b/g, " ")
+    // "1/12" solto ou colado no nome ("DIFERENCI01/12"): é o número da parcela.
+    .replace(/\d{1,2}\s*\/\s*\d{1,2}(?!\d)/g, " ")
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -124,21 +125,47 @@ function cycleMonth(dateIso: string, account: BankAccountRow) {
   return close && Number(dateIso.slice(8, 10)) > close ? addMonthsKey(month, 1) : month;
 }
 
-type PlanGroup = {
-  id: string;
-  title: string;
-  merchant: string;
-  amount: number;
+/** Nome do estabelecimento sem o "01/12" da parcela, para mostrar no parcelamento. */
+export function installmentTitle(merchant: string) {
+  const title = merchant
+    .replace(/\s*\bparc(?:ela)?\.?\s*\d{1,2}\s*(?:\/|de)\s*\d{1,2}\s*$/i, "")
+    .replace(/\s*\d{1,2}\s*\/\s*\d{1,2}\s*$/, "")
+    .trim();
+  return title || merchant;
+}
+
+/** Diferença em meses entre dois meses "AAAA-MM" (b - a). */
+function monthsBetween(a: string, b: string) {
+  const [ya, ma] = a.split("-").map(Number);
+  const [yb, mb] = b.split("-").map(Number);
+  return (yb - ya) * 12 + (mb - ma);
+}
+
+/** Parcelas da mesma compra podem diferir alguns centavos (arredondamento do banco). */
+function sameInstallmentAmount(a: number, b: number) {
+  return Math.abs(a - b) <= Math.max(0.05, Math.min(a, b) * 0.01);
+}
+
+type Candidate = {
+  tx: Transaction;
+  account: BankAccountRow;
+  key: string;
+  index: number;
   total: number;
-  startMonth: string;
-  /** O início foi calculado pela data da compra (mais confiável que a data da linha). */
-  startFromPurchase: boolean;
-  minIndex: number;
-  maxIndex: number;
+  amount: number;
+  /** Mês (fechamento da fatura) em que a parcela foi cobrada. */
+  month: string;
+  purchaseDate: string | null;
   personId: string;
   category: CategoryId;
-  account: BankAccountRow;
-  sample: Transaction;
+};
+
+type Chain = {
+  members: Candidate[];
+  /** Mês da parcela 1, deduzido das parcelas já vistas. */
+  startMonth: string;
+  amount: number;
+  purchaseDate: string | null;
 };
 
 export type BankState = {
@@ -147,17 +174,73 @@ export type BankState = {
   plans: InstallmentPlan[];
 };
 
-export function buildBankState(snapshot: BankSnapshot, people: Person[]): BankState {
+/**
+ * Junta as parcelas que pertencem à mesma compra. Cada compra é uma "corrente":
+ * mesmo cartão, mesmo estabelecimento, mesmo número de parcelas, valor igual (com
+ * tolerância de centavos) e parcelas em meses coerentes entre si. Duas compras no
+ * mesmo lugar (ex.: duas idas à farmácia) ficam em correntes diferentes.
+ */
+function chainInstallments(candidates: Candidate[]) {
+  const buckets = new Map<string, Candidate[]>();
+  for (const candidate of candidates) {
+    const bucket = `${candidate.account.id}|${candidate.key}|${candidate.total}`;
+    buckets.set(bucket, [...(buckets.get(bucket) ?? []), candidate]);
+  }
+  const chains: Chain[] = [];
+  for (const bucket of buckets.values()) {
+    const ordered = [...bucket].sort(
+      (a, b) =>
+        (a.purchaseDate ?? "").localeCompare(b.purchaseDate ?? "") ||
+        a.month.localeCompare(b.month) ||
+        a.index - b.index,
+    );
+    const local: Chain[] = [];
+    for (const candidate of ordered) {
+      const start = addMonthsKey(candidate.month, -(candidate.index - 1));
+      const fit = local.find(
+        (chain) =>
+          !chain.members.some((member) => member.index === candidate.index) &&
+          Math.abs(monthsBetween(chain.startMonth, start)) <= 1 &&
+          sameInstallmentAmount(chain.amount, candidate.amount) &&
+          (!chain.purchaseDate || !candidate.purchaseDate || chain.purchaseDate === candidate.purchaseDate),
+      );
+      if (fit) {
+        fit.members.push(candidate);
+        fit.purchaseDate ??= candidate.purchaseDate;
+      } else {
+        local.push({
+          members: [candidate],
+          startMonth: start,
+          amount: candidate.amount,
+          purchaseDate: candidate.purchaseDate,
+        });
+      }
+    }
+    chains.push(...local);
+  }
+  // O início vem da parcela de menor número já vista (a mais confiável).
+  for (const chain of chains) {
+    const first = chain.members.reduce((a, b) => (b.index < a.index ? b : a));
+    chain.startMonth = addMonthsKey(first.month, -(first.index - 1));
+  }
+  return chains;
+}
+
+export function buildBankState(
+  snapshot: BankSnapshot,
+  people: Person[],
+  today: string = todayIso(),
+): BankState {
   const accountById = new Map(snapshot.accounts.map((account) => [account.id, account]));
   const overrides = new Map(snapshot.overrides.map((item) => [item.txId, item]));
   const rules = new Map(snapshot.rules.map((rule) => [rule.merchantKey, rule.category]));
-  const groups = new Map<string, PlanGroup>();
   const hiddenPlans = new Set(
     snapshot.overrides
       .filter((item) => item.nature === HIDDEN_PLAN_NATURE)
       .map((item) => item.txId),
   );
   const transactions: Transaction[] = [];
+  const candidates: Candidate[] = [];
 
   const accounts: Account[] = snapshot.accounts
     .filter((account) => account.type === "BANK")
@@ -232,90 +315,78 @@ export function buildBankState(snapshot: BankSnapshot, people: Person[]): BankSt
     };
 
     if (installment && competenceMonth) {
-      const fromPurchase = Boolean(purchaseDate);
-      const startMonth = addMonthsKey(competenceMonth, -(index - 1));
-      const cents = Math.round(Math.abs(row.amount) * 100);
-      // Todas as parcelas da mesma compra têm a mesma data de compra. Quando o banco
-      // informa essa data, ela identifica o parcelamento; sem ela, o mês de início
-      // calculado faz esse papel. Assim uma compra não vira vários parcelamentos.
-      const planId = purchaseDate
-        ? `bank-plan:${account.id}:${key}:${total}:${cents}:${purchaseDate}`
-        : `bank-plan:${account.id}:${key}:${total}:${cents}:${startMonth}`;
-      if (!hiddenPlans.has(hiddenPlanKey(planId))) {
-        tx.installmentId = planId;
-        tx.installmentIndex = index;
-        tx.installmentTotal = total;
-        const group = groups.get(planId);
-        if (group) {
-          if (fromPurchase && !group.startFromPurchase) {
-            group.startMonth = startMonth;
-            group.startFromPurchase = true;
-          } else if (fromPurchase === group.startFromPurchase && startMonth < group.startMonth) {
-            group.startMonth = startMonth;
-          }
-          group.minIndex = Math.min(group.minIndex, index);
-          if (index >= group.maxIndex) {
-            group.maxIndex = index;
-            group.sample = tx;
-          }
-        } else {
-          groups.set(planId, {
-            id: planId,
-            title: merchant,
-            merchant,
-            amount: Math.abs(row.amount),
-            total,
-            startMonth,
-            startFromPurchase: fromPurchase,
-            minIndex: index,
-            maxIndex: index,
-            personId,
-            category,
-            account,
-            sample: tx,
-          });
-        }
-      }
+      candidates.push({
+        tx,
+        account,
+        key,
+        index,
+        total,
+        amount: Math.abs(row.amount),
+        month: competenceMonth,
+        purchaseDate,
+        personId,
+        category,
+      });
     }
     transactions.push(tx);
   }
 
+  const currentMonth = today.slice(0, 7);
   const plans: InstallmentPlan[] = [];
-  for (const group of groups.values()) {
+  for (const chain of chainInstallments(candidates)) {
+    const first = chain.members[0];
+    const { account, total } = first;
+    // Mesmo formato de id das versões anteriores, para que parcelamentos já excluídos
+    // continuem excluídos.
+    const cents = Math.round(chain.amount * 100);
+    const planId = `bank-plan:${account.id}:${first.key}:${total}:${cents}:${chain.purchaseDate ?? chain.startMonth}`;
+    if (hiddenPlans.has(hiddenPlanKey(planId))) continue;
+
+    const latest = chain.members.reduce((a, b) => (b.index > a.index ? b : a));
+    const title = installmentTitle(latest.tx.merchant);
+    for (const member of chain.members) {
+      member.tx.installmentId = planId;
+      member.tx.installmentIndex = member.index;
+      member.tx.installmentTotal = total;
+    }
+
     plans.push({
-      id: group.id,
-      title: group.title,
-      merchant: group.merchant,
+      id: planId,
+      title,
+      merchant: title,
       kind: "card",
-      installmentAmount: group.amount,
-      totalCount: group.total,
-      startDate: `${group.startMonth}-01`,
-      personId: group.personId,
-      category: group.category,
-      account: cardLabel(group.account),
-      importedCurrentIndex: group.minIndex,
+      installmentAmount: chain.amount,
+      totalCount: total,
+      startDate: `${chain.startMonth}-01`,
+      personId: latest.personId,
+      category: latest.category,
+      account: cardLabel(account),
+      importedCurrentIndex: Math.min(...chain.members.map((member) => member.index)),
       source: "bank",
     });
 
-    // Parcelas que ainda vão cair nas próximas faturas, para a previsão do mês.
+    // Parcelas que ainda vão cair nas próximas faturas, para a previsão. Uma parcela de
+    // um mês que já passou e não veio do banco não é "próxima": ela já foi cobrada fora
+    // da janela que o banco enviou, então não vira previsão no passado.
     // O mês da parcela é o do fechamento; a data mostrada é o vencimento dessa fatura,
     // que cai no mês seguinte quando o vencimento é antes do dia de fechamento.
-    const dueDay = group.account.dueDate?.slice(8, 10) ?? "10";
-    const close = closingDay(group.account);
+    const dueDay = account.dueDate?.slice(8, 10) ?? "10";
+    const close = closingDay(account);
     const dueNextMonth = close !== null && Number(dueDay) < close;
-    for (let n = group.maxIndex + 1; n <= group.total; n += 1) {
-      const month = addMonthsKey(group.startMonth, n - 1);
+    for (let n = latest.index + 1; n <= total; n += 1) {
+      const month = addMonthsKey(chain.startMonth, n - 1);
+      if (month < currentMonth) continue;
       const dueMonth = dueNextMonth ? addMonthsKey(month, 1) : month;
       transactions.push({
-        ...group.sample,
-        id: `${group.id}:${n}`,
+        ...latest.tx,
+        id: `${planId}:${n}`,
         date: `${dueMonth}-${dueDay}`,
-        description: `${group.title} ${n}/${group.total}`,
-        amount: group.amount,
+        description: `${title} ${n}/${total}`,
+        amount: chain.amount,
         status: "scheduled",
         installmentIndex: n,
         competenceMonth: month,
-        createdAt: group.sample.createdAt,
+        createdAt: latest.tx.createdAt,
       });
     }
   }

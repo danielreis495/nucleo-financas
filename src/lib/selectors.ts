@@ -352,8 +352,10 @@ function bankPlanProgress(state: FinanceState, planId: string) {
   const remaining = txs
     .filter((t) => t.status === "scheduled")
     .sort((a, b) => a.date.localeCompare(b.date));
+  // Parcelas de meses já passados que o banco não enviou não viram previsão; elas
+  // foram cobradas fora da janela recebida, então contam como pagas.
   return {
-    paid: Math.min(total, charged),
+    paid: Math.min(total, Math.max(charged, total - remaining.length)),
     total,
     remainingAmount: sumBy(remaining, (t) => t.amount),
     next: (remaining[0] ?? null) as Transaction | null,
