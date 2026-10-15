@@ -4,6 +4,7 @@
  */
 import { getSql, type Sql } from "../db";
 import { configuredItems, credentialsFor, type BankItemConfig } from "./config";
+import { cardDirection } from "./direction";
 import {
   createApiKey,
   getItem,
@@ -32,6 +33,8 @@ const DAY = 86_400_000;
 const FIRST_SYNC_DAYS = 400;
 /** Cargas seguintes: relê uma janela recente para pegar compras que mudaram de status. */
 const NEXT_SYNC_DAYS = 75;
+/** Sobe quando uma correção na gravação exige reler o histórico inteiro uma vez. */
+const SYNC_VERSION = 2;
 
 function isoDay(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -95,7 +98,11 @@ async function upsertAccount(
   `;
 }
 
-function transactionRecord(tx: PluggyTransaction, billMonthById: Map<string, string>) {
+function transactionRecord(
+  tx: PluggyTransaction,
+  billMonthById: Map<string, string>,
+  isCard: boolean,
+) {
   const meta = tx.creditCardMetadata ?? null;
   const billMonth =
     (meta?.billForecastDate && /^\d{4}-\d{2}/.test(meta.billForecastDate)
@@ -108,7 +115,11 @@ function transactionRecord(tx: PluggyTransaction, billMonthById: Map<string, str
     description: (tx.description || tx.descriptionRaw || "").trim(),
     merchant: (tx.merchant?.name || tx.merchant?.businessName || "").trim() || null,
     amount: Math.abs(Number(tx.amount) || 0),
-    direction: tx.type === "CREDIT" ? "CREDIT" : "DEBIT",
+    direction: isCard
+      ? cardDirection({ amount: tx.amount, type: tx.type, operationType: tx.operationType })
+      : tx.type === "CREDIT"
+        ? "CREDIT"
+        : "DEBIT",
     status: tx.status ?? null,
     category: tx.category ?? null,
     operation_type: tx.operationType ?? null,
@@ -163,10 +174,12 @@ async function upsertTransactions(sql: Sql, records: ReturnType<typeof transacti
 }
 
 async function syncAccount(sql: Sql, apiKey: string, account: PluggyAccount) {
-  const existing = await sql<{ has: boolean }>`
-    select exists(select 1 from bank_transactions where account_id = ${account.id}) as has
+  const existing = await sql<{ has: boolean; version: number | null }>`
+    select exists(select 1 from bank_transactions where account_id = ${account.id}) as has,
+           (select sync_version from bank_accounts where id = ${account.id}) as version
   `;
-  const days = existing[0]?.has ? NEXT_SYNC_DAYS : FIRST_SYNC_DAYS;
+  const upToDate = Number(existing[0]?.version ?? 1) >= SYNC_VERSION;
+  const days = existing[0]?.has && upToDate ? NEXT_SYNC_DAYS : FIRST_SYNC_DAYS;
   const from = isoDay(new Date(Date.now() - days * DAY));
 
   const billMonthById = new Map<string, string>();
@@ -191,7 +204,7 @@ async function syncAccount(sql: Sql, apiKey: string, account: PluggyAccount) {
   const transactions = await listTransactions(apiKey, account.id, from);
   const records = transactions
     .filter((tx) => tx.id && tx.date)
-    .map((tx) => transactionRecord(tx, billMonthById));
+    .map((tx) => transactionRecord(tx, billMonthById, account.type === "CREDIT"));
   await upsertTransactions(sql, records);
 
   // Compras pendentes do cartão às vezes mudam de id quando a fatura fecha. Tudo que
@@ -203,6 +216,10 @@ async function syncAccount(sql: Sql, apiKey: string, account: PluggyAccount) {
        where account_id = $1 and date >= $2 and not (id = any($3::text[]))`,
       [account.id, from, records.map((record) => record.id)],
     );
+  }
+  // Só marca como relida quando a leitura trouxe movimentos; senão tenta de novo na próxima.
+  if (!upToDate && records.length > 0) {
+    await sql`update bank_accounts set sync_version = ${SYNC_VERSION} where id = ${account.id}`;
   }
   return records.length;
 }
