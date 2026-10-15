@@ -4,6 +4,7 @@
  */
 import { getSql, type Sql } from "../db";
 import { configuredItems, credentialsFor, type BankItemConfig } from "./config";
+import { cardDirection } from "./direction";
 import {
   createApiKey,
   getItem,
@@ -32,6 +33,8 @@ const DAY = 86_400_000;
 const FIRST_SYNC_DAYS = 400;
 /** Cargas seguintes: relê uma janela recente para pegar compras que mudaram de status. */
 const NEXT_SYNC_DAYS = 75;
+/** Sobe quando uma correção na gravação exige reler o histórico inteiro uma vez. */
+const SYNC_VERSION = 2;
 
 function isoDay(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -95,7 +98,11 @@ async function upsertAccount(
   `;
 }
 
-function transactionRecord(tx: PluggyTransaction, billMonthById: Map<string, string>) {
+function transactionRecord(
+  tx: PluggyTransaction,
+  billMonthById: Map<string, string>,
+  isCard: boolean,
+) {
   const meta = tx.creditCardMetadata ?? null;
   const billMonth =
     (meta?.billForecastDate && /^\d{4}-\d{2}/.test(meta.billForecastDate)
@@ -108,7 +115,11 @@ function transactionRecord(tx: PluggyTransaction, billMonthById: Map<string, str
     description: (tx.description || tx.descriptionRaw || "").trim(),
     merchant: (tx.merchant?.name || tx.merchant?.businessName || "").trim() || null,
     amount: Math.abs(Number(tx.amount) || 0),
-    direction: tx.type === "CREDIT" ? "CREDIT" : "DEBIT",
+    direction: isCard
+      ? cardDirection({ amount: tx.amount, type: tx.type, operationType: tx.operationType })
+      : tx.type === "CREDIT"
+        ? "CREDIT"
+        : "DEBIT",
     status: tx.status ?? null,
     category: tx.category ?? null,
     operation_type: tx.operationType ?? null,
@@ -163,10 +174,12 @@ async function upsertTransactions(sql: Sql, records: ReturnType<typeof transacti
 }
 
 async function syncAccount(sql: Sql, apiKey: string, account: PluggyAccount) {
-  const existing = await sql<{ has: boolean }>`
-    select exists(select 1 from bank_transactions where account_id = ${account.id}) as has
+  const existing = await sql<{ has: boolean; version: number | null }>`
+    select exists(select 1 from bank_transactions where account_id = ${account.id}) as has,
+           (select sync_version from bank_accounts where id = ${account.id}) as version
   `;
-  const days = existing[0]?.has ? NEXT_SYNC_DAYS : FIRST_SYNC_DAYS;
+  const upToDate = Number(existing[0]?.version ?? 1) >= SYNC_VERSION;
+  const days = existing[0]?.has && upToDate ? NEXT_SYNC_DAYS : FIRST_SYNC_DAYS;
   const from = isoDay(new Date(Date.now() - days * DAY));
 
   const billMonthById = new Map<string, string>();
@@ -191,7 +204,7 @@ async function syncAccount(sql: Sql, apiKey: string, account: PluggyAccount) {
   const transactions = await listTransactions(apiKey, account.id, from);
   const records = transactions
     .filter((tx) => tx.id && tx.date)
-    .map((tx) => transactionRecord(tx, billMonthById));
+    .map((tx) => transactionRecord(tx, billMonthById, account.type === "CREDIT"));
   await upsertTransactions(sql, records);
 
   // Compras pendentes do cartão às vezes mudam de id quando a fatura fecha. Tudo que
@@ -203,6 +216,10 @@ async function syncAccount(sql: Sql, apiKey: string, account: PluggyAccount) {
        where account_id = $1 and date >= $2 and not (id = any($3::text[]))`,
       [account.id, from, records.map((record) => record.id)],
     );
+  }
+  // Só marca como relida quando a leitura trouxe movimentos; senão tenta de novo na próxima.
+  if (!upToDate && records.length > 0) {
+    await sql`update bank_accounts set sync_version = ${SYNC_VERSION} where id = ${account.id}`;
   }
   return records.length;
 }
@@ -233,23 +250,35 @@ export async function syncAll(trigger: "cron" | "manual" | "auto"): Promise<Bank
         apiKey = await createApiKey(credentials);
         apiKeys.set(credentials.clientId, apiKey);
       }
+      // No botão de atualizar, também pede à Pluggy para buscar novidades no banco.
+      // Elas chegam em alguns minutos; a leitura abaixo traz o que já está lá.
+      const update = trigger === "manual" ? await requestItemUpdate(apiKey, item.itemId) : null;
       const info = await getItem(apiKey, item.itemId).catch(() => null);
       if (info) {
         await sql`
-          insert into bank_items (item_id, owner_role, status, last_updated_at, synced_at)
-          values (${item.itemId}, ${item.ownerRole}, ${info.executionStatus ?? info.status ?? null},
-                  ${info.lastUpdatedAt ?? null}, now())
+          insert into bank_items (item_id, owner_role, status, execution_status, error_code,
+                                  error_message, consent_expires_at, last_updated_at, synced_at)
+          values (${item.itemId}, ${item.ownerRole}, ${info.status ?? null},
+                  ${info.executionStatus ?? null}, ${info.error?.code ?? null},
+                  ${(info.error?.providerMessage || info.error?.message || null)?.slice(0, 300) ?? null},
+                  ${info.consentExpiresAt ?? null}, ${info.lastUpdatedAt ?? null}, now())
           on conflict (item_id) do update set
             owner_role = excluded.owner_role,
             status = excluded.status,
+            execution_status = excluded.execution_status,
+            error_code = excluded.error_code,
+            error_message = excluded.error_message,
+            consent_expires_at = excluded.consent_expires_at,
             last_updated_at = excluded.last_updated_at,
             synced_at = now()
         `;
       }
-      // No botão de atualizar, também pede à Pluggy para buscar novidades no banco.
-      // Elas chegam em alguns minutos; a leitura abaixo traz o que já está lá.
-      if (trigger === "manual") {
-        await requestItemUpdate(apiKey, item.itemId).catch(() => false);
+      if (update) {
+        const result = update.ok ? "ok" : update.reason;
+        await sql`
+          update bank_items set update_requested_at = now(), update_result = ${result}
+          where item_id = ${item.itemId}
+        `;
       }
       const accounts = await listAccounts(apiKey, item.itemId);
       const institution = institutionFrom(accounts);
@@ -317,8 +346,10 @@ export async function readSnapshot(): Promise<BankSnapshot> {
   `;
   const lastSuccess = await lastSuccessfulSyncAt();
   const itemRows = await sql<Record<string, unknown>>`
-    select item_id, status,
-           to_char(last_updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_updated_at
+    select item_id, status, execution_status, error_code, error_message, update_result,
+           to_char(last_updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_updated_at,
+           to_char(consent_expires_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as consent_expires_at,
+           to_char(update_requested_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as update_requested_at
     from bank_items
   `.catch(() => [] as Record<string, unknown>[]);
   const billRows = await sql<Record<string, unknown>>`
@@ -338,7 +369,13 @@ export async function readSnapshot(): Promise<BankSnapshot> {
   const items: BankItemInfo[] = itemRows.map((row) => ({
     itemId: String(row.item_id),
     status: (row.status as string | null) ?? null,
+    executionStatus: (row.execution_status as string | null) ?? null,
+    errorCode: (row.error_code as string | null) ?? null,
+    errorMessage: (row.error_message as string | null) ?? null,
+    consentExpiresAt: (row.consent_expires_at as string | null) ?? null,
     lastUpdatedAt: (row.last_updated_at as string | null) ?? null,
+    updateRequestedAt: (row.update_requested_at as string | null) ?? null,
+    updateResult: (row.update_result as string | null) ?? null,
   }));
 
   const accounts: BankAccountRow[] = accountRows.map((row) => ({

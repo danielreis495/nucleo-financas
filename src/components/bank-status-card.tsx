@@ -27,9 +27,13 @@ function formatDateTime(iso: string) {
 
 /** Mostra quais bancos estão conectados, quando atualizou e permite atualizar na hora. */
 export function BankStatusCard({ className }: { className?: string }) {
-  const { phase, institutions, lastSuccessAt, bankUpdatedAt, syncErrors, error } = useBankStatus();
+  const { phase, institutions, lastSuccessAt, bankUpdatedAt, syncErrors, error, itemWarnings } =
+    useBankStatus();
   const busy = phase === "loading" || phase === "syncing";
-  const problems = phase === "error" && error ? [error] : syncErrors;
+  const problems = [
+    ...(phase === "error" && error ? [error] : syncErrors),
+    ...(phase === "syncing" ? [] : itemWarnings.map((warning) => warning.message ?? "")),
+  ].filter(Boolean);
 
   return (
     <section
@@ -44,7 +48,7 @@ export function BankStatusCard({ className }: { className?: string }) {
             {institutions.length ? institutions.join(" · ") : "Bancos conectados"}
           </p>
           <p className="text-xs text-muted">
-            {phase === "syncing" ? "Buscando novidades no banco…" : `Atualizado ${relativeTime(lastSuccessAt)}`}
+            {phase === "syncing" ? "Buscando novidades no banco…" : `Última leitura ${relativeTime(lastSuccessAt)}`}
           </p>
           {bankUpdatedAt && phase !== "syncing" ? (
             <p className="text-[11px] text-muted">
@@ -78,7 +82,11 @@ export function BankStatusCard({ className }: { className?: string }) {
       {problems.length > 0 ? (
         <div className="mt-3 flex gap-2 rounded-lg bg-warn-soft px-3 py-2 text-xs leading-relaxed text-warn">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-          <span>{problems.join(" ")}</span>
+          <div className="space-y-1">
+            {problems.map((problem) => (
+              <p key={problem}>{problem}</p>
+            ))}
+          </div>
         </div>
       ) : null}
     </section>

@@ -13,6 +13,7 @@ import {
   BANK_TX_PREFIX,
   HIDDEN_PLAN_NATURE,
 } from "./mapper";
+import { itemHealth, type ItemHealth } from "./item-health";
 import { setBankSummaries } from "./summary-registry";
 import type { BankEditInput, BankSnapshot, BankSyncInfo } from "./types";
 
@@ -27,6 +28,8 @@ type BankStatus = {
   lastSuccessAt: string | null;
   /** Data mais antiga em que a Pluggy buscou dados nos bancos conectados. */
   bankUpdatedAt: string | null;
+  /** Conexões que não estão trazendo dados novos, com o motivo em português. */
+  itemWarnings: ItemHealth[];
 };
 
 export const useBankStatus = create<BankStatus>(() => ({
@@ -37,7 +40,18 @@ export const useBankStatus = create<BankStatus>(() => ({
   lastSync: null,
   lastSuccessAt: null,
   bankUpdatedAt: null,
+  itemWarnings: [],
 }));
+
+function itemWarnings(snapshot: BankSnapshot): ItemHealth[] {
+  return (snapshot.items ?? [])
+    .map((item) => {
+      const institution =
+        snapshot.accounts.find((account) => account.itemId === item.itemId)?.institution ?? "Banco";
+      return itemHealth(item, institution);
+    })
+    .filter((health) => health.level !== "ok");
+}
 
 function oldestBankUpdate(snapshot: BankSnapshot) {
   const dates = (snapshot.items ?? [])
@@ -95,6 +109,7 @@ function apply(snapshot: BankSnapshot) {
     lastSync: snapshot.lastSync,
     lastSuccessAt: snapshot.lastSuccessAt,
     bankUpdatedAt: oldestBankUpdate(snapshot),
+    itemWarnings: itemWarnings(snapshot),
   });
 }
 
