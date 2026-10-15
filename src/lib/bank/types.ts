@@ -56,9 +56,19 @@ export type BankSyncInfo = {
 
 export type BankItemInfo = {
   itemId: string;
+  /** Situação da conexão na Pluggy: UPDATED, UPDATING, LOGIN_ERROR, OUTDATED… */
   status: string | null;
+  executionStatus?: string | null;
+  /** Código e texto do erro que a Pluggy informa quando a conexão falha. */
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  /** Quando a autorização do Open Finance vence. */
+  consentExpiresAt?: string | null;
   /** Quando a Pluggy buscou os dados no banco pela última vez. */
   lastUpdatedAt: string | null;
+  /** Último pedido de atualização feito pelo botão e o que a Pluggy respondeu ("ok" ou o motivo). */
+  updateRequestedAt?: string | null;
+  updateResult?: string | null;
 };
 
 export type BankBillRow = {
