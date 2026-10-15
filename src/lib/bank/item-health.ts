@@ -31,6 +31,15 @@ const NEEDS_USER = new Set([
 
 const BANK_SIDE = new Set(["OUTDATED", "SITE_NOT_AVAILABLE", "ERROR", "CONNECTION_ERROR"]);
 
+/**
+ * Conexões feitas pelo MeuPluggy não aceitam pedido de atualização pela API (a Pluggy
+ * responde "MeuPluggy item cant be updated"). Não é erro: elas atualizam sozinhas uma vez
+ * por dia, ou na hora pelo botão de atualizar do meu.pluggy.ai.
+ */
+export function isMeuPluggyRefusal(updateResult: string | null | undefined) {
+  return /meupluggy/i.test(updateResult ?? "");
+}
+
 function day(iso: string) {
   const date = new Date(iso);
   return Number.isNaN(date.getTime())
@@ -66,7 +75,7 @@ export function itemHealth(item: BankItemInfo, institution: string, now = Date.n
     };
   }
   const refused =
-    item.updateResult && item.updateResult !== "ok"
+    item.updateResult && item.updateResult !== "ok" && !isMeuPluggyRefusal(item.updateResult)
       ? ` O pedido de atualização foi recusado (${item.updateResult}).`
       : "";
   const updated = item.lastUpdatedAt ? Date.parse(item.lastUpdatedAt) : NaN;

@@ -54,3 +54,27 @@ test("instabilidade do banco: a Pluggy tenta de novo sozinha", () => {
   assert.equal(health.level, "wait");
   assert.match(health.message ?? "", /tenta de novo/);
 });
+
+test("recusa do MeuPluggy não é erro quando os dados estão em dia", () => {
+  const health = itemHealth(
+    { ...base, updateResult: "HTTP 400: 400 MeuPluggy item cant be updated" },
+    "Nubank",
+    now,
+  );
+  assert.deepEqual(health, { level: "ok", message: null });
+});
+
+test("dados parados no MeuPluggy pedem atualizar no meu.pluggy.ai, sem citar a recusa", () => {
+  const health = itemHealth(
+    {
+      ...base,
+      lastUpdatedAt: "2026-10-11T09:00:00Z",
+      updateResult: "HTTP 400: 400 MeuPluggy item cant be updated",
+    },
+    "Itaú",
+    now,
+  );
+  assert.equal(health.level, "action");
+  assert.doesNotMatch(health.message ?? "", /recusado/);
+  assert.match(health.message ?? "", /meu\.pluggy\.ai/);
+});

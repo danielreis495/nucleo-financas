@@ -27,8 +27,16 @@ function formatDateTime(iso: string) {
 
 /** Mostra quais bancos estão conectados, quando atualizou e permite atualizar na hora. */
 export function BankStatusCard({ className }: { className?: string }) {
-  const { phase, institutions, lastSuccessAt, bankUpdatedAt, syncErrors, error, itemWarnings } =
-    useBankStatus();
+  const {
+    phase,
+    institutions,
+    lastSuccessAt,
+    bankUpdatedAt,
+    syncErrors,
+    error,
+    itemWarnings,
+    updatesOnlyInMeuPluggy,
+  } = useBankStatus();
   const busy = phase === "loading" || phase === "syncing";
   const problems = [
     ...(phase === "error" && error ? [error] : syncErrors),
@@ -52,8 +60,10 @@ export function BankStatusCard({ className }: { className?: string }) {
           </p>
           {bankUpdatedAt && phase !== "syncing" ? (
             <p className="text-[11px] text-muted">
-              Dados do banco de {formatDateTime(bankUpdatedAt)}. Ao tocar em atualizar, o banco
-              manda as novidades em alguns minutos.
+              Dados do banco de {formatDateTime(bankUpdatedAt)}.{" "}
+              {updatesOnlyInMeuPluggy
+                ? "A Pluggy busca novidades uma vez por dia. Para buscar agora, atualize no meu.pluggy.ai e depois toque aqui."
+                : "Ao tocar em atualizar, o banco manda as novidades em alguns minutos."}
             </p>
           ) : null}
         </div>
