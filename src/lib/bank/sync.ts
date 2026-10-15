@@ -233,23 +233,35 @@ export async function syncAll(trigger: "cron" | "manual" | "auto"): Promise<Bank
         apiKey = await createApiKey(credentials);
         apiKeys.set(credentials.clientId, apiKey);
       }
+      // No botão de atualizar, também pede à Pluggy para buscar novidades no banco.
+      // Elas chegam em alguns minutos; a leitura abaixo traz o que já está lá.
+      const update = trigger === "manual" ? await requestItemUpdate(apiKey, item.itemId) : null;
       const info = await getItem(apiKey, item.itemId).catch(() => null);
       if (info) {
         await sql`
-          insert into bank_items (item_id, owner_role, status, last_updated_at, synced_at)
-          values (${item.itemId}, ${item.ownerRole}, ${info.executionStatus ?? info.status ?? null},
-                  ${info.lastUpdatedAt ?? null}, now())
+          insert into bank_items (item_id, owner_role, status, execution_status, error_code,
+                                  error_message, consent_expires_at, last_updated_at, synced_at)
+          values (${item.itemId}, ${item.ownerRole}, ${info.status ?? null},
+                  ${info.executionStatus ?? null}, ${info.error?.code ?? null},
+                  ${(info.error?.providerMessage || info.error?.message || null)?.slice(0, 300) ?? null},
+                  ${info.consentExpiresAt ?? null}, ${info.lastUpdatedAt ?? null}, now())
           on conflict (item_id) do update set
             owner_role = excluded.owner_role,
             status = excluded.status,
+            execution_status = excluded.execution_status,
+            error_code = excluded.error_code,
+            error_message = excluded.error_message,
+            consent_expires_at = excluded.consent_expires_at,
             last_updated_at = excluded.last_updated_at,
             synced_at = now()
         `;
       }
-      // No botão de atualizar, também pede à Pluggy para buscar novidades no banco.
-      // Elas chegam em alguns minutos; a leitura abaixo traz o que já está lá.
-      if (trigger === "manual") {
-        await requestItemUpdate(apiKey, item.itemId).catch(() => false);
+      if (update) {
+        const result = update.ok ? "ok" : update.reason;
+        await sql`
+          update bank_items set update_requested_at = now(), update_result = ${result}
+          where item_id = ${item.itemId}
+        `;
       }
       const accounts = await listAccounts(apiKey, item.itemId);
       const institution = institutionFrom(accounts);
@@ -317,8 +329,10 @@ export async function readSnapshot(): Promise<BankSnapshot> {
   `;
   const lastSuccess = await lastSuccessfulSyncAt();
   const itemRows = await sql<Record<string, unknown>>`
-    select item_id, status,
-           to_char(last_updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_updated_at
+    select item_id, status, execution_status, error_code, error_message, update_result,
+           to_char(last_updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_updated_at,
+           to_char(consent_expires_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as consent_expires_at,
+           to_char(update_requested_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as update_requested_at
     from bank_items
   `.catch(() => [] as Record<string, unknown>[]);
   const billRows = await sql<Record<string, unknown>>`
@@ -338,7 +352,13 @@ export async function readSnapshot(): Promise<BankSnapshot> {
   const items: BankItemInfo[] = itemRows.map((row) => ({
     itemId: String(row.item_id),
     status: (row.status as string | null) ?? null,
+    executionStatus: (row.execution_status as string | null) ?? null,
+    errorCode: (row.error_code as string | null) ?? null,
+    errorMessage: (row.error_message as string | null) ?? null,
+    consentExpiresAt: (row.consent_expires_at as string | null) ?? null,
     lastUpdatedAt: (row.last_updated_at as string | null) ?? null,
+    updateRequestedAt: (row.update_requested_at as string | null) ?? null,
+    updateResult: (row.update_result as string | null) ?? null,
   }));
 
   const accounts: BankAccountRow[] = accountRows.map((row) => ({
