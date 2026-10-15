@@ -47,7 +47,12 @@ export type PluggyItem = {
   status?: string | null;
   executionStatus?: string | null;
   lastUpdatedAt?: string | null;
+  consentExpiresAt?: string | null;
+  error?: { code?: string | null; message?: string | null; providerMessage?: string | null } | null;
 };
+
+/** Resposta do pedido de atualização: `ok` ou o motivo da recusa (sem dados pessoais). */
+export type ItemUpdateResult = { ok: true } | { ok: false; reason: string };
 
 export type PluggyBill = {
   id: string;
@@ -133,13 +138,26 @@ export async function getItem(apiKey: string, itemId: string) {
  * Pede à Pluggy para buscar novidades no banco agora. A atualização roda em segundo
  * plano: os dados novos aparecem na próxima leitura, alguns minutos depois.
  */
-export async function requestItemUpdate(apiKey: string, itemId: string) {
-  const res = await fetch(`${BASE}/items/${encodeURIComponent(itemId)}`, {
-    method: "PATCH",
-    headers: { "X-API-KEY": apiKey, "content-type": "application/json", accept: "application/json" },
-    body: "{}",
-  });
-  return res.ok;
+export async function requestItemUpdate(apiKey: string, itemId: string): Promise<ItemUpdateResult> {
+  try {
+    const res = await fetch(`${BASE}/items/${encodeURIComponent(itemId)}`, {
+      method: "PATCH",
+      headers: { "X-API-KEY": apiKey, "content-type": "application/json", accept: "application/json" },
+      body: "{}",
+    });
+    if (res.ok) return { ok: true };
+    const text = await res.text().catch(() => "");
+    let detail = "";
+    try {
+      const body = JSON.parse(text) as { message?: string; code?: number | string };
+      detail = [body.code, body.message].filter(Boolean).join(" ");
+    } catch {
+      detail = text;
+    }
+    return { ok: false, reason: `HTTP ${res.status}${detail ? `: ${detail.slice(0, 160)}` : ""}` };
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message.slice(0, 160) : "sem resposta" };
+  }
 }
 
 export async function listAccounts(apiKey: string, itemId: string) {
