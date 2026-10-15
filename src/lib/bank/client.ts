@@ -13,7 +13,7 @@ import {
   BANK_TX_PREFIX,
   HIDDEN_PLAN_NATURE,
 } from "./mapper";
-import { itemHealth, type ItemHealth } from "./item-health";
+import { isMeuPluggyRefusal, itemHealth, type ItemHealth } from "./item-health";
 import { setBankSummaries } from "./summary-registry";
 import type { BankEditInput, BankSnapshot, BankSyncInfo } from "./types";
 
@@ -30,6 +30,8 @@ type BankStatus = {
   bankUpdatedAt: string | null;
   /** Conexões que não estão trazendo dados novos, com o motivo em português. */
   itemWarnings: ItemHealth[];
+  /** Conexões do MeuPluggy: o app não consegue pedir atualização, só o meu.pluggy.ai. */
+  updatesOnlyInMeuPluggy: boolean;
 };
 
 export const useBankStatus = create<BankStatus>(() => ({
@@ -41,6 +43,7 @@ export const useBankStatus = create<BankStatus>(() => ({
   lastSuccessAt: null,
   bankUpdatedAt: null,
   itemWarnings: [],
+  updatesOnlyInMeuPluggy: false,
 }));
 
 function itemWarnings(snapshot: BankSnapshot): ItemHealth[] {
@@ -110,6 +113,9 @@ function apply(snapshot: BankSnapshot) {
     lastSuccessAt: snapshot.lastSuccessAt,
     bankUpdatedAt: oldestBankUpdate(snapshot),
     itemWarnings: itemWarnings(snapshot),
+    updatesOnlyInMeuPluggy: (snapshot.items ?? []).some((item) =>
+      isMeuPluggyRefusal(item.updateResult),
+    ),
   });
 }
 
