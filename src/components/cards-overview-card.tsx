@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 function normalize(value: string | undefined) {
   return (value ?? "")
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
@@ -134,7 +134,8 @@ export function CardsOverviewCard({ className }: { className?: string }) {
             <Link
               key={card.key}
               to="/extrato"
-              search={{ q: card.institution }}
+              // Só o cartão: buscar só pelo banco traria também a conta corrente.
+              search={{ q: `Cartão ${card.institution}` }}
               aria-label={`Ver movimentos do cartão ${card.institution}`}
               className="group rounded-xl bg-surface p-4 shadow-[var(--shadow-border)] transition-transform active:scale-[0.98]"
             >

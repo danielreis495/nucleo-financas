@@ -1,6 +1,5 @@
 /**
- * Sentido de um movimento vindo da Pluggy. Puro: usado no servidor (ao gravar) e no app
- * (para corrigir registros antigos).
+ * Sentido de um movimento vindo da Pluggy, usado ao gravar no banco de dados.
  *
  * No cartão, a Pluggy segue o sinal do valor: positivo é compra (aumenta a fatura) e
  * negativo é crédito (pagamento ou estorno). O campo `type` nem sempre acompanha: um
